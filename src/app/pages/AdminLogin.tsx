@@ -1,9 +1,23 @@
-import React from "react";
-import { Link } from "react-router";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router";
 import { BookOpen, ShieldAlert } from "lucide-react";
 import { motion } from "motion/react";
+import { useAuth } from "../contexts/AuthContext";
 
 export function AdminLogin() {
+  const navigate = useNavigate();
+  const { loginAdmin } = useAuth();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username.trim() && password.trim()) {
+      loginAdmin({ name: username, email: `${username}@svga.local` });
+      navigate("/admin");
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 15 }}
@@ -42,11 +56,13 @@ export function AdminLogin() {
             <p className="text-slate-500 text-sm">Enter your administrator credentials to continue.</p>
           </div>
 
-          <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
+          <form className="space-y-5" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
               <label className="text-sm font-semibold text-slate-700 block">Username</label>
               <input 
                 type="text" 
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-300 text-slate-700"
               />
@@ -59,6 +75,8 @@ export function AdminLogin() {
               </div>
               <input 
                 type="password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-300 text-slate-700"
               />

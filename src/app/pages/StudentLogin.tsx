@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { BookOpen, CheckCircle2, ChevronRight, LockKeyhole } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useAuth } from "../contexts/AuthContext";
 
 export function StudentLogin() {
   const navigate = useNavigate();
-  
+  const { loginStudent } = useAuth();
+
   // States to track flow
   const [aadhaar, setAadhaar] = useState("");
   const [email, setEmail] = useState("");
@@ -31,7 +33,8 @@ export function StudentLogin() {
   const handleGetStarted = (e: React.FormEvent) => {
     e.preventDefault();
     if (isFormComplete) {
-      navigate("/student-dashboard");
+      loginStudent({ name: email.split("@")[0] || "Student User", email });
+      navigate("/student");
     }
   };
 
