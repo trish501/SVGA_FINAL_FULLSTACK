@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect, type ChangeEvent } from "react";
+import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import {
   Bell, BookOpen, User, LayoutDashboard, Search, Check, Download,
@@ -14,12 +15,30 @@ import {
   SelectItem,
   SelectValue,
 } from "./components/ui/select";
+import { useAuth } from "../../contexts/AuthContext";
+
+function useStudent() {
+  const { profile } = useAuth();
+  const memberSince = profile?.createdAt
+    ? new Date(profile.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
+    : "N/A";
+  return {
+    name: profile?.name || "Student User",
+    id: profile?.studentId || "STU00000",
+    email: profile?.email || "student@svga.local",
+    mobile: profile?.phone || "99999 99999",
+    course: profile?.course || "B.Com",
+    year: profile?.academicYear || "FY-Degree",
+    college: profile?.college || "SVGA College",
+    aadhaar: profile?.aadhaarNumber || profile?.aadhaar || "1234 5678 9012",
+    memberSince,
+    issuedBooks: profile?.issuedBooks ?? [],
+    membershipStatus: profile?.membershipStatus || "NOT_PAID",
+  };
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Screen = "register" | "dashboard" | "browse" | "requests" | "account";
-type RegStep = 1 | 2 | 3;
-
-type RequestChallan = {
+type Screen = "dashboard" | "browse" | "requests" | "account";type RequestChallan = {
   id: string;
   orderNo: string;
   challanNo: string;
@@ -257,49 +276,10 @@ function NotificationDrawer({
     </div>
   );
 }
-const STUDENT = {
-  name: "Rahul Sharma",
-  id: "SVGA2024001",
-  course: "B.Tech Computer Science",
-  year: "3rd Year",
-  college: "SVGA Engineering College",
-  email: "rahul.sharma@svga.edu.in",
-  mobile: "9876543210",
-  aadhaar: "XXXX XXXX 4521",
-  memberSince: "Jan 2024",
-};
 
-const BOOKS = [
-  { id: "b1", title: "Engineering Mathematics", author: "B.S. Grewal", course: "B.Tech", subject: "Mathematics", available: 3 },
-  { id: "b2", title: "Data Structures & Algorithms", author: "Ellis Horowitz", course: "B.Tech CS", subject: "Computer Science", available: 1 },
-  { id: "b3", title: "Operating System Concepts", author: "Abraham Silberschatz", course: "B.Tech CS", subject: "Computer Science", available: 2 },
-  { id: "b4", title: "Computer Networks", author: "Andrew S. Tanenbaum", course: "B.Tech CS", subject: "Computer Science", available: 0 },
-  { id: "b5", title: "Database Management Systems", author: "Ramakrishnan & Gehrke", course: "B.Tech CS", subject: "Computer Science", available: 4 },
-  { id: "b6", title: "Engineering Physics", author: "H.K. Malik", course: "B.Tech", subject: "Physics", available: 2 },
-  { id: "b7", title: "Discrete Mathematics", author: "Kenneth H. Rosen", course: "B.Tech CS", subject: "Mathematics", available: 1 },
-  { id: "b8", title: "Compiler Design", author: "Alfred V. Aho", course: "B.Tech CS", subject: "Computer Science", available: 3 },
-];
 
-const INITIAL_REQUESTS: RequestItem[] = [
-  {
-    id: "REQ-2024-001",
-    requestId: "REQ-2024-001",
-    date: "15 Jan 2024",
-    type: "Book Request",
-    status: "Approved",
-    books: ["Engineering Mathematics", "Engineering Physics"],
-    challan: null,
-  },
-  {
-    id: "REQ-2024-002",
-    requestId: "REQ-2024-002",
-    date: "3 Feb 2024",
-    type: "Book Request",
-    status: "Pending",
-    books: ["Advanced Algorithms"],
-    challan: null,
-  },
-];
+// No hardcoded mock requests — real data is fetched from the backend
+const INITIAL_REQUESTS: RequestItem[] = [];
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 function Logo({ compact = false }: { compact?: boolean }) {
@@ -403,9 +383,6 @@ function ChallanPreviewCard({ challan, course }: { challan: RequestChallan | nul
         <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="text-sm font-extrabold uppercase tracking-[0.2em] text-slate-500">Student Details</div>
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-700">
-              {challan.status}
-            </span>
           </div>
           <div className="mt-4 space-y-2 text-sm text-slate-700">
             <div><span className="font-semibold text-slate-700">Name:</span> {challan.student.name}</div>
@@ -439,9 +416,14 @@ function ChallanPreviewCard({ challan, course }: { challan: RequestChallan | nul
           </div>
           <div className="mt-4 space-y-2">
             {challan.libraryBooks.length > 0 ? challan.libraryBooks.map((book, index) => (
-              <div key={`${book.title}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <div className="font-semibold">{index + 1}. {book.title}</div>
-                <div className="mt-1 text-xs text-slate-400">{book.author}</div>
+              <div key={`${book.title}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{index + 1}. {book.title}</div>
+                  <div className="mt-1 text-xs text-slate-400">{book.author}</div>
+                </div>
+                <span className="flex-shrink-0">
+                  <StatusBadge status={challan.status} />
+                </span>
               </div>
             )) : <div className="text-sm text-slate-400">No library books selected.</div>}
           </div>
@@ -456,9 +438,14 @@ function ChallanPreviewCard({ challan, course }: { challan: RequestChallan | nul
           </div>
           <div className="mt-4 space-y-2">
             {challan.specialRequests.length > 0 ? challan.specialRequests.map((request, index) => (
-              <div key={`${request.title}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <div className="font-semibold">{index + 1}. {request.title}</div>
-                <div className="mt-1 text-xs text-slate-400">{request.author}</div>
+              <div key={`${request.title}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{index + 1}. {request.title}</div>
+                  <div className="mt-1 text-xs text-slate-400">{request.author}</div>
+                </div>
+                <span className="flex-shrink-0">
+                  <StatusBadge status={challan.status} />
+                </span>
               </div>
             )) : <div className="text-sm text-slate-400">No special requests added.</div>}
           </div>
@@ -518,6 +505,7 @@ function StepBar({ step, labels }: { step: RegStep; labels: string[] }) {
 }
 
 function NavBar({ active, onNav, unreadCount, onToggleNotifications }: { active: Screen; onNav: (s: Screen) => void; unreadCount: number; onToggleNotifications: () => void }) {
+  const STUDENT = useStudent();
   const links: { key: Screen; label: string; icon: React.ReactNode }[] = [
     { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "browse", label: "Browse Books", icon: <BookOpen className="w-4 h-4" /> },
@@ -599,457 +587,9 @@ function NavBar({ active, onNav, unreadCount, onToggleNotifications }: { active:
   );
 }
 
-// ─── Screen 2–4: Registration ─────────────────────────────────────────────────
-function RegistrationScreen({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState<RegStep>(1);
-  const [showPayment, setShowPayment] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-
-  const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) setPhotoPreview(URL.createObjectURL(file));
-  };
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50/60 to-indigo-50 px-4 py-8">
-      {showPayment && (
-        <PaymentModal
-          onSuccess={() => {
-            setShowPayment(false);
-            setShowSuccess(true);
-          }}
-          onClose={() => setShowPayment(false)}
-        />
-      )}
-      {showSuccess && (
-        <SuccessModal
-          onContinue={() => {
-            setShowSuccess(false);
-            setShowPayment(false);
-            onComplete();
-          }}
-        />
-      )}
-
-      <div className="max-w-2xl mx-auto">
-        <div className="flex flex-col items-center mb-6">
-          <Logo />
-          <h1 className="text-2xl font-extrabold text-slate-800 mt-4 tracking-tight">Student Registration</h1>
-          <p className="text-slate-400 text-sm mt-1">Complete your profile to access the book bank</p>
-        </div>
-
-        <StepBar step={step} labels={["Personal Details", "Academic Info", "Profile Photo"]} />
-
-        <motion.div
-          key={step}
-          initial={{ opacity: 0, x: 24 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-          className="bg-white rounded-3xl shadow-xl shadow-blue-100/60 border border-blue-50 p-8"
-        >
-          {step === 1 && <PersonalForm />}
-          {step === 2 && <AcademicForm />}
-          {step === 3 && <PhotoForm preview={photoPreview} onChange={handleFile} />}
-
-          <div className="flex gap-3 mt-8">
-            {step > 1 && (
-              <button
-                onClick={() => setStep((s) => (s - 1) as RegStep)}
-                className="flex-1 py-3 border-2 border-blue-200 text-blue-700 font-bold rounded-xl hover:bg-blue-50 transition-all"
-              >
-                ← Back
-              </button>
-            )}
-            <button
-              onClick={() => {
-                if (step < 3) setStep((s) => (s + 1) as RegStep);
-                else setShowPayment(true);
-              }}
-              className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5"
-            >
-              {step < 3 ? "Continue →" : "Proceed to Payment"}
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
-
-function FieldInput({
-  label,
-  placeholder,
-  type = "text",
-  options,
-  span,
-  value,
-  onChange,
-  readOnly = false,
-  disabled = false,
-  required = true,
-  inputMode,
-  maxLength,
-  pattern,
-  defaultValue,
-}: {
-  label: string;
-  placeholder: string;
-  type?: string;
-  options?: string[];
-  span?: number;
-  value?: string;
-  onChange?: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
-  readOnly?: boolean;
-  disabled?: boolean;
-  required?: boolean;
-  inputMode?: string;
-  maxLength?: number;
-  pattern?: string;
-  defaultValue?: string;
-}) {
-  const cls = "w-full min-h-[52px] px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-[18px] text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-4 focus:ring-blue-200 focus:border-transparent transition-all duration-250 text-sm disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed disabled:border-slate-200";
-  return (
-    <div className={span === 2 ? "sm:col-span-2" : ""}>
-      <label className="block text-sm font-bold text-slate-700 mb-1.5">
-        {label}
-        {required && <span className="text-blue-300 font-normal"> *</span>}
-      </label>
-      {type === "select" ? (
-        <div className="relative">
-          <Select
-            value={value ?? ""}
-            onValueChange={(nextValue) =>
-              onChange?.({ target: { value: nextValue } } as unknown as ChangeEvent<HTMLSelectElement>)
-            }
-            disabled={disabled}
-          >
-            <SelectTrigger className={`${cls} pr-10`} size="default">
-              <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent className="max-h-64 overflow-y-auto">
-              {options?.map((o) => (
-                <SelectItem key={o} value={o}>
-                  {o}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : type === "textarea" ? (
-        <textarea
-          rows={3}
-          placeholder={placeholder}
-          value={value}
-          onChange={onChange}
-          readOnly={readOnly}
-          disabled={disabled}
-          defaultValue={defaultValue}
-          className={`${cls} resize-none`}
-        />
-      ) : (
-        <input
-          type={type}
-          placeholder={placeholder}
-          value={value}
-          onChange={onChange}
-          readOnly={readOnly}
-          disabled={disabled}
-          inputMode={inputMode}
-          maxLength={maxLength}
-          pattern={pattern}
-          defaultValue={defaultValue}
-          className={cls}
-        />
-      )}
-    </div>
-  );
-}
-
-function PersonalForm() {
-  const [surname, setSurname] = useState("");
-  const [showSurnameOther, setShowSurnameOther] = useState(false);
-  const [occupation, setOccupation] = useState("");
-  const [showOccupationOther, setShowOccupationOther] = useState(false);
-  const [manualSurname, setManualSurname] = useState("");
-  const [manualOccupation, setManualOccupation] = useState("");
-  const [nativeVillage, setNativeVillage] = useState("");
-  const [parentsContact, setParentsContact] = useState("");
-  const [currentResidence, setCurrentResidence] = useState("");
-
-  const surnameOptions = ["Bauva", "Buricha", "Charla", "Chhadwa", "Chheda", "Dagha", "Dedhia", "Furiya", "Gada", "Gala", "Gindra", "Gogri", "Karia", "Khirani-Gala", "Khuthia", "Mamania", "Mota", "Nandu", "Nisar", "Rambhia", "Rita", "Satra", "Savla", "Shah", "Vadhan", "Visaria", "Vora", "Other"];
-  const occupationOptions = ["Student", "Part-time Job", "Freelancer", "Business", "Service / Employment", "Other"];
-  const villageOptions = ["Adhoi", "Bhachau", "Bharudia", "Gagodar", "Ghanithar", "Halra", "Kakrava", "Kharoi", "Lakadiya", "Manafra", "Nandasar", "N. Trambo", "Rav", "Samkhiyari", "Shivlakha", "Suvai", "Thoriyari", "Trambo", "Vanoi"];
-
-  return (
-    <div>
-      <h2 className="text-xl font-extrabold text-slate-800 mb-1">Personal Details</h2>
-      <p className="text-slate-400 text-sm mb-6">Enter your details as per official documents</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldInput label="Email Address" placeholder="rahul.sharma@email.com" type="email" value={STUDENT.email} disabled readOnly span={2} />
-        <FieldInput label="First Name" placeholder="Rahul" defaultValue="Rahul" />
-        <FieldInput label="Surname" placeholder="Select surname" type="select" options={surnameOptions} value={surname} onChange={(e) => {
-          const nextValue = e.target.value;
-          setSurname(nextValue);
-          setShowSurnameOther(nextValue === "Other");
-          if (nextValue !== "Other") setManualSurname("");
-        }} required={false} />
-        {showSurnameOther && <FieldInput label="Enter Surname" placeholder="Enter your surname" value={manualSurname} onChange={(e) => setManualSurname(e.target.value)} required={showSurnameOther} span={2} />}
-        <FieldInput label="Father's / Husband's Name" placeholder="Suresh Sharma" />
-        <FieldInput label="Grandfather's Name" placeholder="Ram Sharma" />
-        <FieldInput label="Official Surname (if different)" placeholder="Optional" span={2} />
-        <FieldInput label="Aadhaar Number" placeholder="XXXX XXXX XXXX" value={STUDENT.aadhaar} disabled readOnly />
-        <FieldInput label="Mobile Number" placeholder="9876543210" value={STUDENT.mobile} disabled readOnly />
-        <FieldInput label="Date of Birth" placeholder="" type="date" />
-        <FieldInput label="Gender" placeholder="Select gender" type="select" options={["Male", "Female", "Other", "Prefer not to say"]} />
-        <FieldInput label="Occupation" placeholder="Select occupation" type="select" options={occupationOptions} value={occupation} onChange={(e) => {
-          const nextValue = e.target.value;
-          setOccupation(nextValue);
-          setShowOccupationOther(nextValue === "Other");
-          if (nextValue !== "Other") setManualOccupation("");
-        }} />
-        {showOccupationOther && <FieldInput label="Specify Occupation" placeholder="Enter your occupation" value={manualOccupation} onChange={(e) => setManualOccupation(e.target.value)} required={showOccupationOther} span={2} />}
-        <FieldInput label="Native Place / Village" placeholder="Select village" type="select" options={villageOptions} value={nativeVillage} onChange={(e) => setNativeVillage(e.target.value)} />
-        <FieldInput label="Parents Contact Number" placeholder="9876543210" type="tel" inputMode="numeric" maxLength={10} pattern="[0-9]{10}" value={parentsContact} onChange={(e) => setParentsContact(e.target.value.replace(/\D/g, "").slice(0, 10))} />
-        <FieldInput label="Where Do You Currently Live?" placeholder="Ghatkopar, Mumbai" value={currentResidence} onChange={(e) => setCurrentResidence(e.target.value)} />
-      </div>
-    </div>
-  );
-}
-
-function AcademicForm() {
-  const [course, setCourse] = useState("");
-  const [showCourseOther, setShowCourseOther] = useState(false);
-  const [manualCourse, setManualCourse] = useState("");
-
-  const courseOptions = ["FYJC Science", "SYJC Science", "FYJC Commerce", "SYJC Commerce", "FYJC Arts", "SYJC Arts", "B.Com", "B.Sc", "BA", "BBA", "BCA", "MBBS", "BDS", "B.Pharm", "Engineering", "Diploma", "Other"];
-
-  return (
-    <div>
-      <h2 className="text-xl font-extrabold text-slate-800 mb-1">Academic Information</h2>
-      <p className="text-slate-400 text-sm mb-6">Enter your academic and institutional information</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <FieldInput label="College / Institute" placeholder="SVGA Engineering College" span={2} />
-        <FieldInput label="Course / Stream" placeholder="Select course or stream" type="select" options={courseOptions} value={course} onChange={(e) => {
-          const nextValue = e.target.value;
-          setCourse(nextValue);
-          setShowCourseOther(nextValue === "Other");
-          if (nextValue !== "Other") setManualCourse("");
-        }} />
-        {showCourseOther && <FieldInput label="Specify Course / Stream" placeholder="Enter your course or stream" value={manualCourse} onChange={(e) => setManualCourse(e.target.value)} required={showCourseOther} span={2} />}
-        <FieldInput label="Education Specialization" placeholder="Computer Science & Engineering" />
-        <FieldInput label="Academic Year" placeholder="Select year" type="select" options={["2023-24", "2024-25", "2025-26"]} />
-      </div>
-    </div>
-  );
-}
-
-function PhotoForm({ preview, onChange }: { preview: string | null; onChange: (e: ChangeEvent<HTMLInputElement>) => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  return (
-    <div className="flex flex-col items-center">
-      <h2 className="text-xl font-extrabold text-slate-800 mb-1 text-center">Profile Photo</h2>
-      <p className="text-slate-400 text-sm mb-8 text-center">Upload a clear passport-size photo with a white background</p>
-
-      <div className="relative mb-5">
-        <div
-          onClick={() => inputRef.current?.click()}
-          className="w-40 h-40 rounded-full border-4 border-dashed border-blue-200 bg-blue-50 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-100/50 transition-all duration-200 overflow-hidden"
-        >
-          {preview ? (
-            <img src={preview} alt="Profile preview" className="w-full h-full object-cover" />
-          ) : (
-            <>
-              <Camera className="w-10 h-10 text-blue-300 mb-2" />
-              <span className="text-xs text-blue-400 font-semibold">Click to upload</span>
-            </>
-          )}
-        </div>
-        {preview && (
-          <button
-            onClick={() => inputRef.current?.click()}
-            className="absolute bottom-1 right-1 w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center shadow-lg hover:bg-blue-700 transition-colors"
-          >
-            <Camera className="w-4 h-4 text-white" />
-          </button>
-        )}
-      </div>
-
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onChange} />
-
-      <button
-        onClick={() => inputRef.current?.click()}
-        className="px-7 py-2.5 border-2 border-blue-200 text-blue-700 font-bold rounded-xl hover:bg-blue-50 hover:border-blue-300 transition-all mb-7"
-      >
-        Choose Photo
-      </button>
-
-      <div className="bg-blue-50 rounded-2xl p-5 w-full">
-        <p className="text-sm font-bold text-slate-700 mb-3">Photo Requirements</p>
-        <div className="space-y-2">
-          {[
-            "Clear frontal face, no glasses or mask",
-            "White or plain light background",
-            "File size: maximum 2 MB",
-            "Format: JPG or PNG only",
-            "Recent photo taken within 6 months",
-          ].map((r) => (
-            <div key={r} className="flex items-start gap-2 text-sm text-slate-500">
-              <Check className="w-3.5 h-3.5 text-blue-400 mt-0.5 flex-shrink-0" />
-              {r}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Modals ───────────────────────────────────────────────────────────────────
-function PaymentModal({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
-  const [method, setMethod] = useState<"card" | "upi" | "net">("card");
-  const [selectedBank, setSelectedBank] = useState("");
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-7 relative"
-      >
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
-        >
-          <X className="w-4 h-4 text-slate-500" />
-        </button>
-
-        <div className="text-center mb-5">
-          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <Wallet className="w-7 h-7 text-blue-600" />
-          </div>
-          <h2 className="text-xl font-extrabold text-slate-800">Complete Payment</h2>
-          <p className="text-slate-400 text-sm mt-1">One-time refundable security deposit</p>
-        </div>
-
-        <div className="bg-gradient-to-r from-blue-600 to-sky-500 rounded-2xl p-5 text-white text-center mb-5">
-          <div className="text-4xl font-extrabold">₹500</div>
-          <div className="text-blue-100 text-xs mt-1.5 flex items-center justify-center gap-1.5">
-            <Shield className="w-3.5 h-3.5" /> Fully refundable deposit
-          </div>
-        </div>
-
-        <div className="flex gap-2 mb-5">
-          {(
-            [
-              { key: "card" as const, label: "Card", icon: <CreditCard className="w-3.5 h-3.5" /> },
-              { key: "upi" as const, label: "UPI", icon: <Smartphone className="w-3.5 h-3.5" /> },
-              { key: "net" as const, label: "Net Banking", icon: <Library className="w-3.5 h-3.5" /> },
-            ] as const
-          ).map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMethod(m.key)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                method === m.key
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-200"
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-              }`}
-            >
-              {m.icon} {m.label}
-            </button>
-          ))}
-        </div>
-
-        {method === "card" && (
-          <div className="space-y-3 mb-5">
-            <input type="text" placeholder="Card Number" className="w-full px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" />
-            <div className="flex gap-3">
-              <input type="text" placeholder="MM / YY" className="flex-1 px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" />
-              <input type="text" placeholder="CVV" className="w-24 px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" />
-            </div>
-            <input type="text" placeholder="Cardholder Name" className="w-full px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" />
-          </div>
-        )}
-        {method === "upi" && (
-          <div className="mb-5">
-            <input type="text" placeholder="Enter UPI ID (e.g. rahul@okaxis)" className="w-full px-4 py-3 bg-blue-50/60 border border-blue-100 rounded-xl text-slate-800 placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" />
-          </div>
-        )}
-        {method === "net" && (
-          <div className="mb-5">
-            <Select value={selectedBank} onValueChange={setSelectedBank}>
-              <SelectTrigger className="w-full rounded-[18px] border border-blue-100 bg-blue-50/60 text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-all text-sm" size="default">
-                <SelectValue placeholder="Select your bank" />
-              </SelectTrigger>
-              <SelectContent className="max-h-60 overflow-y-auto">
-                {["SBI", "HDFC Bank", "ICICI Bank", "Axis Bank", "PNB", "Bank of Baroda", "Canara Bank"].map((b) => (
-                  <SelectItem key={b} value={b}>
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        <button
-          onClick={onSuccess}
-          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5"
-        >
-          Pay ₹500 Securely
-        </button>
-        <p className="text-center text-[11px] text-slate-400 mt-3 flex items-center justify-center gap-1">
-          <Shield className="w-3 h-3" /> Secured with 256-bit SSL encryption
-        </p>
-      </motion.div>
-    </div>
-  );
-}
-
-function SuccessModal({ onContinue }: { onContinue: () => void }) {
-  return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 16 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 280, damping: 24 }}
-        className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 text-center"
-      >
-        <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-5">
-          <CheckCircle className="w-10 h-10 text-emerald-500" />
-        </div>
-        <h2 className="text-2xl font-extrabold text-slate-800 mb-2">Payment Successful!</h2>
-        <p className="text-slate-400 text-sm leading-relaxed mb-6">
-          Your ₹500 deposit has been received. SVGA Book Bank membership is now active.
-        </p>
-        <div className="bg-emerald-50 rounded-2xl p-4 mb-6 text-left space-y-2.5 border border-emerald-100">
-          {[
-            { label: "Transaction ID", value: "TXN2024001342" },
-            { label: "Amount Paid", value: "₹500" },
-            { label: "Membership", value: "Active" },
-            { label: "Valid Until", value: "Dec 2024" },
-          ].map((r) => (
-            <div key={r.label} className="flex justify-between text-sm">
-              <span className="text-slate-500">{r.label}</span>
-              <span className={`font-bold ${r.label === "Amount Paid" ? "text-emerald-600" : "text-slate-800"}`}>
-                {r.value}
-              </span>
-            </div>
-          ))}
-        </div>
-        <button
-          onClick={onContinue}
-          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5"
-        >
-          Go to Dashboard →
-        </button>
-      </motion.div>
-    </div>
-  );
-}
-
 // ─── Screen 7: Dashboard ──────────────────────────────────────────────────────
 function DashboardScreen({ onNav, requests }: { onNav: (s: Screen) => void; requests: RequestItem[] }) {
+  const STUDENT = useStudent();
   const stats = [
     { label: "Membership", value: "Active", icon: <Shield className="w-5 h-5" />, color: "text-blue-600 bg-blue-50 border-blue-100" },
     { label: "Total Issued", value: "3", icon: <BookOpen className="w-5 h-5" />, color: "text-violet-600 bg-violet-50 border-violet-100" },
@@ -1073,7 +613,7 @@ function DashboardScreen({ onNav, requests }: { onNav: (s: Screen) => void; requ
               ✓ Verified Member
             </span>
           </div>
-          <h2 className="text-2xl font-extrabold mb-1">Welcome back, Rahul! 👋</h2>
+          <h2 className="text-2xl font-extrabold mb-1">Welcome back, {STUDENT.name}! 👋</h2>
           <p className="text-blue-100 text-sm leading-relaxed max-w-lg">
             Your SVGA Book Bank membership is active. Browse books, track requests, and manage your library account.
           </p>
@@ -1223,6 +763,8 @@ function DashboardScreen({ onNav, requests }: { onNav: (s: Screen) => void; requ
 
 // ─── Screen 8: Browse Books ───────────────────────────────────────────────────
 function BrowseBooks({ onRequestCreated }: { onRequestCreated: (request: RequestItem) => void }) {
+  const { token } = useAuth();
+  const STUDENT = useStudent();
   const [step, setStep] = useState<1 | 2>(1);
   const [course, setCourse] = useState("");
   const [stream, setStream] = useState("");
@@ -1253,14 +795,31 @@ function BrowseBooks({ onRequestCreated }: { onRequestCreated: (request: Request
   const courseOptions = ["FYJC", "SYJC", "FY-Degree", "SY-Degree", "TY-Degree", "MBBS", "BDS", "Engineering", "Commerce", "Arts", "Science", "Other"];
   const showStreamField = ["FYJC", "SYJC", "FY-Degree", "SY-Degree", "TY-Degree", "MBBS", "BDS", "Engineering", "Commerce", "Arts", "Science", "Other"].includes(course);
 
-  const inventoryBooks = useMemo(() =>
-    BOOKS.map((book) => ({
-      ...book,
-      keywords: `${book.title} ${book.author} ${book.subject} ${book.course}`.toLowerCase(),
-      isbn: `ISBN-${book.id.toUpperCase()}`,
-    })),
-    []
-  );
+  const [inventoryBooks, setInventoryBooks] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch("http://localhost:3001/api/books", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.books)) {
+          setInventoryBooks(
+            data.books.map((b: any) => ({
+              id: b._id,
+              title: b.title,
+              author: b.author,
+              course: b.category || "General",
+              subject: b.category || "General",
+              available: b.availableQuantity || 0,
+              keywords: `${b.title} ${b.author} ${b.category}`.toLowerCase(),
+              isbn: b.isbn || `ISBN-${b._id.slice(-6).toUpperCase()}`,
+            }))
+          );
+        }
+      })
+      .catch((err) => console.error("Failed to load books:", err));
+  }, [token]);
 
   const filteredBooks = useMemo(() => {
     const query = bookSearch.toLowerCase().trim();
@@ -1332,59 +891,92 @@ function BrowseBooks({ onRequestCreated }: { onRequestCreated: (request: Request
     if (previewRequestId === requestId) setPreviewRequestId(null);
   };
 
-  const handleGenerateChallan = () => {
+  const handleGenerateChallan = async () => {
     if (selectedLibraryBooks.length === 0 && specialRequests.length === 0) return;
 
-    const today = new Date();
-    const requestId = `REQ-${today.getFullYear()}-${String(Date.now()).slice(-4)}`;
-    const challanNo = `CHL-${today.getFullYear()}-${String(Date.now()).slice(-4)}`;
-    const orderNo = `ORD-${today.getFullYear()}-${String(Date.now()).slice(-4)}`;
-    const requestDate = today.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-    const libraryBooks = selectedLibraryBooks.map((bookId) => {
-      const book = inventoryBooks.find((item) => item.id === bookId);
-      return { title: book?.title ?? "Unknown", author: book?.author ?? "Unknown", notes: "Available for issue" };
-    });
-    const specialBookRequests = specialRequests.map((request) => ({
-      title: request.title,
-      author: request.author,
-      edition: request.edition,
-      publisher: request.publisher,
-      notes: request.notes,
-      imageName: request.imageName,
-    }));
+    try {
+      const res = await fetch("http://localhost:3001/api/requests", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          selectedBookIds: selectedLibraryBooks,
+          requestedBooks: specialRequests.map((request) => ({
+            title: request.title,
+            author: request.author,
+            edition: request.edition,
+            publisher: request.publisher,
+            note: request.notes,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        console.error("Failed to generate challan:", data.message);
+        alert(data.message || "Failed to generate challan");
+        return;
+      }
 
-    const challan: RequestChallan = {
-      id: challanNo,
-      orderNo,
-      challanNo,
-      date: requestDate,
-      student: {
-        name: STUDENT.name,
-        course,
-        college: STUDENT.college,
-        phone: STUDENT.mobile,
-        studentId: STUDENT.id,
-      },
-      status: "Pending Verification",
-      deposit: "₹500",
-      refund: "Applicable on return",
-      libraryBooks,
-      specialRequests: specialBookRequests,
-    };
+      const r = data.request;
+      const dateObj = new Date(r.createdAt);
+      const year = dateObj.getFullYear();
+      const suffix = String(r._id).slice(-6).toUpperCase();
+      
+      const requestId = `SVGA/${year}/REQ/${suffix}`;
+      const challanNo = `SVGA/${year}/CHL/${suffix}`;
+      const orderNo = `SVGA/${year}/ORD/${suffix}`;
+      const requestDate = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      
+      const libraryBooks = selectedLibraryBooks.map((bookId) => {
+        const book = inventoryBooks.find((item) => item.id === bookId);
+        return { title: book?.title ?? "Unknown", author: book?.author ?? "Unknown", notes: "Available for issue" };
+      });
+      const specialBookRequests = specialRequests.map((request) => ({
+        title: request.title,
+        author: request.author,
+        edition: request.edition,
+        publisher: request.publisher,
+        notes: request.notes,
+        imageName: request.imageName,
+      }));
 
-    const request: RequestItem = {
-      id: requestId,
-      requestId,
-      date: requestDate,
-      type: "Book Request",
-      status: "Pending",
-      books: [...libraryBooks.map((book) => book.title), ...specialBookRequests.map((book) => book.title)],
-      challan,
-    };
+      const challan: RequestChallan = {
+        id: challanNo,
+        orderNo,
+        challanNo,
+        date: requestDate,
+        student: {
+          name: STUDENT.name,
+          course,
+          college: STUDENT.college,
+          phone: STUDENT.mobile,
+          studentId: STUDENT.id,
+        },
+        status: r.status,
+        deposit: "Paid at Registration",
+        refund: "Applicable on return",
+        libraryBooks,
+        specialRequests: specialBookRequests,
+      };
 
-    setGeneratedChallan(challan);
-    setChallanGenerated(true);
-    onRequestCreated(request);
+      const requestItem: RequestItem = {
+        id: String(r._id),
+        requestId,
+        date: requestDate,
+        type: "Book Request",
+        status: r.status,
+        books: [...libraryBooks.map((book) => book.title), ...specialBookRequests.map((book) => book.title)],
+        challan,
+      };
+
+      setGeneratedChallan(challan);
+      setChallanGenerated(true);
+      onRequestCreated(requestItem);
+    } catch (err) {
+      console.error("Error generating challan:", err);
+    }
   };
 
   const handleChangeCourse = () => {
@@ -1832,6 +1424,62 @@ function MyRequests({
 
 // ─── Screen 10: My Account ────────────────────────────────────────────────────
 function MyAccount({ onLogout }: { onLogout: () => void }) {
+  const STUDENT = useStudent();
+  const { token } = useAuth();
+  const [issuedBooks, setIssuedBooks] = useState<any[]>([]);
+
+  // Fetch issued books from approved requests
+  useEffect(() => {
+    if (!token) return;
+    fetch("http://localhost:3001/api/requests/my", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.requests)) {
+          const approvedBooks: any[] = [];
+          data.requests.forEach((r: any) => {
+            if (r.status === "Approved") {
+              (r.selectedBooks || []).forEach((b: any) => {
+                approvedBooks.push({
+                  title: b.title,
+                  author: b.author,
+                  issueDate: b.issueDate || r.createdAt,
+                  returnDate: b.returnDate || new Date(new Date(b.issueDate || r.createdAt).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                  returned: b.returned,
+                });
+              });
+            }
+          });
+          // Also include issuedBooks from the user profile
+          STUDENT.issuedBooks.forEach((b: any) => {
+            if (!b.returned) {
+              approvedBooks.push({
+                title: b.bookTitle,
+                author: b.bookAuthor,
+                issueDate: b.issueDate || new Date().toISOString(),
+                returnDate: b.returnDate || new Date(new Date(b.issueDate || new Date()).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                returned: b.returned,
+              });
+            }
+          });
+          setIssuedBooks(approvedBooks);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch issued books:", err));
+  }, [token]);
+
+  // Calculate membership validity (1 year from registration)
+  const validUntil = STUDENT.memberSince !== "N/A"
+    ? (() => {
+        const parts = STUDENT.memberSince.split(" ");
+        const monthMap: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+        const year = parseInt(parts[1]) + 1;
+        const month = monthMap[parts[0]] ?? 0;
+        return new Date(year, month).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+      })()
+    : "N/A";
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -1854,7 +1502,6 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
           <div className="bg-white rounded-3xl border border-blue-50 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
               <h3 className="font-extrabold text-slate-800">Personal Information</h3>
-              <button className="text-blue-600 text-sm font-bold hover:text-blue-700 transition-colors">Edit</button>
             </div>
             <div className="p-5 flex items-start gap-5">
               <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-100 to-sky-100 flex items-center justify-center flex-shrink-0">
@@ -1882,12 +1529,15 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
 
           {/* Issued books */}
           <div className="bg-white rounded-3xl border border-blue-50 shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-50">
+            <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
               <h3 className="font-extrabold text-slate-800">Currently Issued Books</h3>
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700">
+                {issuedBooks.length} {issuedBooks.length === 1 ? "book" : "books"}
+              </span>
             </div>
             <div className="divide-y divide-slate-50">
-              {BOOKS.slice(0, 2).map((book) => (
-                <div key={book.id} className="px-5 py-4 flex items-center gap-4">
+              {issuedBooks.length > 0 ? issuedBooks.map((book, idx) => (
+                <div key={`${book.title}-${idx}`} className="px-5 py-4 flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
                     <BookOpen className="w-5 h-5 text-blue-500" />
                   </div>
@@ -1896,11 +1546,26 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
                     <div className="text-xs text-slate-400 mt-0.5">{book.author}</div>
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="text-amber-600 text-xs font-bold">Due: Apr 30</div>
-                    <div className="mt-1"><StatusBadge status="Approved" /></div>
+                    <div className="text-amber-600 text-xs font-bold flex items-center justify-end gap-1.5">
+                      Due: {new Date(book.returnDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      <span className="px-1.5 py-0.5 rounded bg-amber-50 text-[10px] text-amber-700 border border-amber-100 font-bold whitespace-nowrap">
+                        {(() => {
+                          const diffTime = new Date(book.returnDate).getTime() - new Date().getTime();
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          return diffDays < 0 ? `Overdue by ${Math.abs(diffDays)}d` : `${diffDays}d left`;
+                        })()}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      Issued: {new Date(book.issueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="px-5 py-6 text-center text-sm text-slate-400">
+                  No books currently issued. Generate a challan from Browse Books to request books.
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1920,7 +1585,7 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-[10px] text-blue-200 font-medium">Valid until</div>
-                <div className="font-bold text-sm">Dec 2024</div>
+                <div className="font-bold text-sm">{validUntil}</div>
               </div>
               <span className="bg-emerald-400/20 text-emerald-200 border border-emerald-400/30 text-[11px] font-extrabold px-2.5 py-1 rounded-full">
                 ACTIVE
@@ -1934,9 +1599,7 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
             <div className="space-y-2">
               {[
                 { label: "Download ID Card", icon: <Download className="w-4 h-4" />, color: "text-blue-600" },
-                { label: "View Challan History", icon: <FileText className="w-4 h-4" />, color: "text-blue-600" },
                 { label: "Update Profile", icon: <Settings className="w-4 h-4" />, color: "text-blue-600" },
-                { label: "Return Books", icon: <RefreshCw className="w-4 h-4" />, color: "text-amber-600" },
               ].map((a) => (
                 <button
                   key={a.label}
@@ -1965,9 +1628,14 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
   );
 }
 
+const API_BASE = "http://localhost:3001/api";
+
 // ─── Root App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("register");
+  const navigate = useNavigate();
+  const { logout, token } = useAuth();
+  const STUDENT = useStudent();
+  const [screen, setScreen] = useState<Screen>("dashboard");
   const [requests, setRequests] = useState<RequestItem[]>(INITIAL_REQUESTS);
   const [activeChallan, setActiveChallan] = useState<RequestChallan | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -1976,8 +1644,86 @@ export default function App() {
 
   const unreadCount = notifications.filter((item) => item.unread).length;
 
+  // ── Fetch real requests from backend on mount ────────────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/requests/my`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.requests)) {
+          const mapped: RequestItem[] = data.requests.map((r: any) => {
+            const dateObj = new Date(r.createdAt);
+            const year = dateObj.getFullYear();
+            const suffix = String(r._id).slice(-6).toUpperCase();
+            
+            const reqId = `SVGA/${year}/REQ/${suffix}`;
+            const challanNo = `SVGA/${year}/CHL/${suffix}`;
+            const orderNo = `SVGA/${year}/ORD/${suffix}`;
+            const requestDate = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
+            const libraryBooks = (r.selectedBookIds ?? []).map((b: any) => ({
+              title: b.title ?? "Unknown",
+              author: b.author ?? "Unknown",
+              notes: "Available for issue"
+            }));
+            const specialBookRequests = (r.requestedBooks ?? []).map((b: any) => ({
+              title: b.title,
+              author: b.author,
+              edition: b.edition ?? "",
+              publisher: b.publisher ?? "",
+              notes: b.note ?? "",
+              imageName: null,
+            }));
+
+            const challan: RequestChallan = {
+              id: challanNo,
+              orderNo,
+              challanNo,
+              date: requestDate,
+              student: {
+                name: STUDENT.name,
+                course: STUDENT.course,
+                college: STUDENT.college,
+                phone: STUDENT.mobile,
+                studentId: STUDENT.id,
+              },
+              status: r.status,
+              deposit: "Paid at Registration",
+              refund: "Applicable on return",
+              libraryBooks,
+              specialRequests: specialBookRequests,
+            };
+
+            return {
+              id: String(r._id),
+              requestId: reqId,
+              date: requestDate,
+              type: "Book Request" as const,
+              status: r.status as RequestItem["status"],
+              books: [
+                ...libraryBooks.map((b) => b.title),
+                ...specialBookRequests.map((b) => b.title),
+              ],
+              challan,
+            };
+          });
+          setRequests(mapped);
+        }
+      })
+      .catch(() => {
+        // Backend unavailable — leave requests empty
+      });
+  }, [token]);
+
+  // ── Handle real logout (only triggered by Sign Out button) ───────────────────
+  const handleLogout = () => {
+    logout();
+    navigate("/student/login", { replace: true });
+  };
+
   const handleRegistrationComplete = () => {
-    setScreen("dashboard");
     setActiveChallan(null);
   };
 
@@ -2036,11 +1782,11 @@ export default function App() {
     <div className="min-h-screen bg-background" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       {isPostAuth && <NavBar active={screen} onNav={setScreen} unreadCount={unreadCount} onToggleNotifications={toggleNotifications} />}
 
-      {screen === "register" && <RegistrationScreen onComplete={handleRegistrationComplete} />}
+
       {screen === "dashboard" && <DashboardScreen onNav={setScreen} requests={requests} />}
       {screen === "browse" && <BrowseBooks onRequestCreated={handleRequestCreated} />}
       {screen === "requests" && <MyRequests requests={requests} onViewChallan={setActiveChallan} />}
-      {screen === "account" && <MyAccount onLogout={() => setScreen("dashboard")} />}
+      {screen === "account" && <MyAccount onLogout={handleLogout} />}
 
       <NotificationDrawer
         notifications={notifications}

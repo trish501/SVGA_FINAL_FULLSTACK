@@ -4,10 +4,37 @@ import { Navigate, useLocation } from "react-router";
 type UserType = "guest" | "student" | "admin";
 type ThemeMode = "light" | "dark";
 
+interface IssuedBook {
+  bookId?: string;
+  bookTitle: string;
+  bookAuthor: string;
+  issueDate?: string;
+  returnDate?: string;
+  returned?: boolean;
+}
+
 interface UserProfile {
   name: string;
   email: string;
   role: UserType;
+  phone?: string;
+  aadhaarNumber?: string;
+  profileCompleted?: boolean;
+  studentId?: string;
+  course?: string;
+  college?: string;
+  academicYear?: string;
+  createdAt?: string;
+  aadhaar?: string;
+  issuedBooks?: IssuedBook[];
+  membershipStatus?: string;
+}
+
+interface TempLoginData {
+  phone?: string;
+  aadhaarNumber?: string;
+  token?: string;
+  email?: string;
 }
 
 interface NotificationState {
@@ -19,16 +46,19 @@ interface AuthState {
   userType: UserType;
   isAuthenticated: boolean;
   profile: UserProfile | null;
+  token: string | null;
   theme: ThemeMode;
   notifications: NotificationState;
+  tempLoginData: TempLoginData | null;
 }
 
 interface AuthContextValue extends AuthState {
-  loginStudent: (profile?: Partial<UserProfile>) => void;
+  loginStudent: (profile?: Partial<UserProfile>, token?: string, tempLoginData?: TempLoginData) => void;
   loginAdmin: (profile?: Partial<UserProfile>) => void;
   logout: () => void;
   setTheme: (theme: ThemeMode) => void;
   markNotificationsRead: () => void;
+  setTempLoginData: (data: TempLoginData | null) => void;
 }
 
 const STORAGE_KEY = "svga-portal-auth";
@@ -37,11 +67,13 @@ const initialState: AuthState = {
   userType: "guest",
   isAuthenticated: false,
   profile: null,
+  token: null,
   theme: "light",
   notifications: {
     unreadCount: 0,
     items: [],
   },
+  tempLoginData: null,
 };
 
 function readStoredAuthState(): AuthState {
@@ -80,24 +112,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [state]);
 
-  const loginStudent = (profile?: Partial<UserProfile>) => {
+  const loginStudent = (profile?: Partial<UserProfile>, token?: string, tempLoginData?: TempLoginData) => {
     setState((current) => ({
       ...current,
       userType: "student",
       isAuthenticated: true,
+      token: token || current.token,
       profile: {
         name: profile?.name ?? "Student User",
         email: profile?.email ?? "student@svga.local",
         role: "student",
+        phone: profile?.phone,
+        aadhaarNumber: profile?.aadhaarNumber,
+        profileCompleted: profile?.profileCompleted,
+        studentId: profile?.studentId,
+        course: profile?.course,
+        college: profile?.college,
+        academicYear: profile?.academicYear,
+        createdAt: profile?.createdAt,
+        aadhaar: profile?.aadhaar,
+        issuedBooks: (profile as any)?.issuedBooks ?? [],
+        membershipStatus: (profile as any)?.membershipStatus,
       },
+      tempLoginData: tempLoginData || current.tempLoginData,
     }));
   };
 
-  const loginAdmin = (profile?: Partial<UserProfile>) => {
+  const loginAdmin = (profile?: Partial<UserProfile>, token?: string) => {
     setState((current) => ({
       ...current,
       userType: "admin",
       isAuthenticated: true,
+      token: token || current.token,
       profile: {
         name: profile?.name ?? "Admin User",
         email: profile?.email ?? "admin@svga.local",
@@ -112,6 +158,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setTheme = (theme: ThemeMode) => {
     setState((current) => ({ ...current, theme }));
+  };
+
+  const setTempLoginData = (data: TempLoginData | null) => {
+    setState((current) => ({ ...current, tempLoginData: data }));
   };
 
   const markNotificationsRead = () => {
@@ -132,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       setTheme,
       markNotificationsRead,
+      setTempLoginData,
     }),
     [state]
   );

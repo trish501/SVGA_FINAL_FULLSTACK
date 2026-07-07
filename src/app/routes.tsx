@@ -4,6 +4,7 @@ import { AuthProvider, ProtectedRoute } from "./contexts/AuthContext";
 import { Home } from "./pages/Home";
 import { AdminLogin } from "./pages/AdminLogin";
 import { StudentLogin } from "./pages/StudentLogin";
+import { StudentRegister } from "./pages/StudentRegister";
 import { PortalShell } from "./layouts/PortalShell";
 
 const StudentPortalPage = lazy(() => import("./pages/student/StudentPortal"));
@@ -24,6 +25,14 @@ export const router = createBrowserRouter([
   {
     path: "/student/login",
     element: withProvider(<StudentLogin />),
+  },
+  {
+    path: "/student/register",
+    element: withProvider(
+      <ProtectedRoute requiredRole="student" redirectTo="/student/login">
+        <StudentRegister />
+      </ProtectedRoute>
+    ),
   },
   {
     path: "/admin/login",

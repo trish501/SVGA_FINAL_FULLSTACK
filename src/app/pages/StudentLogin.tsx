@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { BookOpen, CheckCircle2, ChevronRight, LockKeyhole } from "lucide-react";
+import { BookOpen, CheckCircle2, ChevronRight, LockKeyhole, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../contexts/AuthContext";
+
+const API_BASE = "http://localhost:3001/api";
 
 export function StudentLogin() {
   const navigate = useNavigate();
@@ -14,32 +16,103 @@ export function StudentLogin() {
   const [emailOtp, setEmailOtp] = useState("");
   const [mobile, setMobile] = useState("");
   const [mobileOtp, setMobileOtp] = useState("");
-  
+
   const [isEmailOtpSent, setIsEmailOtpSent] = useState(false);
   const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [isMobileOtpSent, setIsMobileOtpSent] = useState(false);
   const [isMobileVerified, setIsMobileVerified] = useState(false);
+  const [loginResponse, setLoginResponse] = useState<any>(null);
 
-  const handleVerifyEmailOTP = () => {
-    if (emailOtp.length > 3) setIsEmailVerified(true);
+  // Loading & error states
+  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
+  const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+  const [sendingMobileOtp, setSendingMobileOtp] = useState(false);
+  const [verifyingMobileOtp, setVerifyingMobileOtp] = useState(false);
+  const [error, setError] = useState("");
+
+  // --- Mobile OTP: Send ---
+  const handleSendMobileOtp = async () => {
+    setError("");
+    setSendingMobileOtp(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/otp/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: mobile, aadhaarNumber: aadhaar }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsMobileOtpSent(true);
+      } else {
+        setError(data.message || "Failed to send OTP. Please try again.");
+      }
+    } catch {
+      setError("Network error. Please check your connection.");
+    } finally {
+      setSendingMobileOtp(false);
+    }
   };
 
-  const handleVerifyMobileOTP = () => {
-    if (mobileOtp.length > 3) setIsMobileVerified(true);
+  // --- Mobile OTP: Verify ---
+  const handleVerifyMobileOTP = async () => {
+    setError("");
+    setVerifyingMobileOtp(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/otp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: mobile, otp: mobileOtp, aadhaarNumber: aadhaar }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsMobileVerified(true);
+        setLoginResponse(data);
+      } else {
+        setError(data.message || "Invalid OTP. Please try again.");
+      }
+    } catch {
+      setError("Network error. Please check your connection.");
+    } finally {
+      setVerifyingMobileOtp(false);
+    }
+  };
+
+  // --- Email OTP: Send (demo - marks as sent) ---
+  const handleSendEmailOtp = async () => {
+    setError("");
+    setSendingEmailOtp(true);
+    // Email OTP is handled as demo (no backend email service configured yet)
+    await new Promise((r) => setTimeout(r, 800));
+    setIsEmailOtpSent(true);
+    setSendingEmailOtp(false);
+  };
+
+  // --- Email OTP: Verify (demo - any 4+ digit code works) ---
+  const handleVerifyEmailOTP = () => {
+    if (emailOtp.length >= 4) setIsEmailVerified(true);
   };
 
   const isFormComplete = aadhaar.length >= 12 && isEmailVerified && isMobileVerified;
 
   const handleGetStarted = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isFormComplete) {
-      loginStudent({ name: email.split("@")[0] || "Student User", email });
-      navigate("/student");
+    if (isFormComplete && loginResponse) {
+      if (loginResponse.profileCompleted) {
+        loginStudent(loginResponse.user, loginResponse.token);
+        navigate("/student", { replace: true });
+      } else {
+        loginStudent(loginResponse.user, loginResponse.token, {
+          phone: mobile,
+          aadhaarNumber: aadhaar,
+          email: email,
+        });
+        navigate("/student/register", { replace: true });
+      }
     }
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
@@ -50,7 +123,7 @@ export function StudentLogin() {
       <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-100/60 blur-3xl pointer-events-none z-0" />
       <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] rounded-full bg-cyan-100/40 blur-3xl pointer-events-none z-0" />
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
@@ -65,21 +138,35 @@ export function StudentLogin() {
         <p className="text-slate-500 font-medium mt-2">Verify your details to get started.</p>
       </motion.div>
 
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
         className="w-full max-w-md relative z-10"
       >
         <div className="bg-white/80 backdrop-blur-xl border border-blue-50 rounded-3xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] shadow-blue-100/50">
-          
+
+          {/* Global error banner */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 font-medium"
+              >
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <form className="space-y-6" onSubmit={handleGetStarted}>
-            
+
             {/* Step 1: Aadhaar */}
             <div className="space-y-1.5 relative">
               <label className="text-sm font-semibold text-slate-700 block">Aadhaar Number</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 maxLength={12}
                 value={aadhaar}
                 onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, ''))}
@@ -99,25 +186,26 @@ export function StudentLogin() {
                   {isEmailVerified && <span className="text-xs font-bold text-emerald-500 flex items-center gap-1"><CheckCircle2 size={14}/> Verified</span>}
                 </label>
                 <div className="flex gap-2">
-                  <input 
-                    type="email" 
+                  <input
+                    type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isEmailVerified}
                     placeholder="student@college.edu"
                     className={`w-full px-4 py-3 rounded-xl border transition-all placeholder:text-slate-300 ${
-                      isEmailVerified 
-                        ? "bg-slate-50 border-emerald-200 text-slate-500" 
+                      isEmailVerified
+                        ? "bg-slate-50 border-emerald-200 text-slate-500"
                         : "border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-slate-700"
                     }`}
                   />
                   {!isEmailVerified && (
-                    <button 
+                    <button
                       type="button"
-                      onClick={() => setIsEmailOtpSent(true)}
-                      disabled={!email.includes('@')}
-                      className="px-4 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:hover:bg-blue-50"
+                      onClick={handleSendEmailOtp}
+                      disabled={!email.includes('@') || sendingEmailOtp}
+                      className="px-4 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:hover:bg-blue-50 flex items-center gap-1"
                     >
+                      {sendingEmailOtp ? <Loader2 size={14} className="animate-spin" /> : null}
                       Send OTP
                     </button>
                   )}
@@ -127,24 +215,25 @@ export function StudentLogin() {
               {/* Email OTP Field */}
               <AnimatePresence>
                 {isEmailOtpSent && !isEmailVerified && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
                     className="space-y-1.5 overflow-hidden"
                   >
+                    <p className="text-xs text-blue-500 font-medium">Enter any 4+ digit code (email OTP is in demo mode)</p>
                     <div className="flex gap-2 items-center">
                       <div className="relative flex-1">
                         <LockKeyhole size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={emailOtp}
                           onChange={(e) => setEmailOtp(e.target.value)}
                           placeholder="Enter Email OTP"
                           className="w-full pl-9 pr-4 py-3 rounded-xl border border-blue-200 bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-400 text-slate-700"
                         />
                       </div>
-                      <button 
+                      <button
                         type="button"
                         onClick={handleVerifyEmailOTP}
                         disabled={emailOtp.length < 4}
@@ -170,27 +259,28 @@ export function StudentLogin() {
                 <div className="flex gap-2">
                   <div className="flex-1 relative flex items-center">
                     <span className="absolute left-4 text-slate-500 font-medium">+91</span>
-                    <input 
-                      type="tel" 
+                    <input
+                      type="tel"
                       maxLength={10}
                       value={mobile}
                       onChange={(e) => setMobile(e.target.value.replace(/\D/g, ''))}
                       disabled={isMobileVerified}
                       placeholder="98765 43210"
                       className={`w-full pl-12 pr-4 py-3 rounded-xl border transition-all placeholder:text-slate-300 ${
-                        isMobileVerified 
-                          ? "bg-slate-50 border-emerald-200 text-slate-500" 
+                        isMobileVerified
+                          ? "bg-slate-50 border-emerald-200 text-slate-500"
                           : "border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-slate-700"
                       }`}
                     />
                   </div>
                   {!isMobileVerified && (
-                    <button 
+                    <button
                       type="button"
-                      onClick={() => setIsMobileOtpSent(true)}
-                      disabled={mobile.length < 10}
-                      className="px-4 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:hover:bg-blue-50"
+                      onClick={handleSendMobileOtp}
+                      disabled={mobile.length < 10 || sendingMobileOtp}
+                      className="px-4 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors whitespace-nowrap disabled:opacity-50 disabled:hover:bg-blue-50 flex items-center gap-1"
                     >
+                      {sendingMobileOtp ? <Loader2 size={14} className="animate-spin" /> : null}
                       Send OTP
                     </button>
                   )}
@@ -200,32 +290,43 @@ export function StudentLogin() {
               {/* Mobile OTP Field */}
               <AnimatePresence>
                 {isMobileOtpSent && !isMobileVerified && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
                     className="space-y-1.5 overflow-hidden"
                   >
+                    <p className="text-xs text-blue-500 font-medium">A 4-digit OTP has been sent to +91{mobile} via SMS</p>
                     <div className="flex gap-2 items-center">
                       <div className="relative flex-1">
                         <LockKeyhole size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
+                          maxLength={4}
                           value={mobileOtp}
-                          onChange={(e) => setMobileOtp(e.target.value)}
-                          placeholder="Enter Mobile OTP"
-                          className="w-full pl-9 pr-4 py-3 rounded-xl border border-blue-200 bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-400 text-slate-700"
+                          onChange={(e) => setMobileOtp(e.target.value.replace(/\D/g, ''))}
+                          placeholder="Enter 4-digit OTP"
+                          className="w-full pl-9 pr-4 py-3 rounded-xl border border-blue-200 bg-blue-50/30 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-400 text-slate-700 tracking-widest font-mono text-lg"
                         />
                       </div>
-                      <button 
+                      <button
                         type="button"
                         onClick={handleVerifyMobileOTP}
-                        disabled={mobileOtp.length < 4}
-                        className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50 shadow-sm"
+                        disabled={mobileOtp.length < 4 || verifyingMobileOtp}
+                        className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50 shadow-sm flex items-center gap-1"
                       >
+                        {verifyingMobileOtp ? <Loader2 size={14} className="animate-spin" /> : null}
                         Verify
                       </button>
                     </div>
+                    <button
+                      type="button"
+                      onClick={handleSendMobileOtp}
+                      disabled={sendingMobileOtp}
+                      className="text-xs text-slate-400 hover:text-blue-500 transition-colors mt-1"
+                    >
+                      Resend OTP
+                    </button>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -238,7 +339,7 @@ export function StudentLogin() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  <button 
+                  <button
                     type="submit"
                     className="w-full mt-4 bg-gradient-to-r from-blue-500 to-cyan-400 hover:from-blue-600 hover:to-cyan-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-200 hover:shadow-xl hover:shadow-blue-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                   >

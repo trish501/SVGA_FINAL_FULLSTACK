@@ -14,7 +14,7 @@ export function AdminLogin() {
     e.preventDefault();
     if (username.trim() && password.trim()) {
       loginAdmin({ name: username, email: `${username}@svga.local` });
-      navigate("/admin");
+      navigate("/admin", { replace: true });
     }
   };
 
