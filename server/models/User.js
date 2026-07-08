@@ -42,6 +42,11 @@ const userSchema = new mongoose.Schema(
       enum: ['PAID', 'NOT_PAID'],
       default: 'NOT_PAID',
     },
+    accountStatus: {
+      type: String,
+      enum: ['Active', 'Suspended', 'Inactive'],
+      default: 'Active',
+    },
     paymentStatus: {
       type: String,
       enum: ['SUCCESS', 'PENDING', 'FAILED'],

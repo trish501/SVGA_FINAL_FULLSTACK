@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   LayoutDashboard, BookOpen, Package, Users, ClipboardList, Settings,
   Bell, LogOut, Search, Filter, Plus, Download, Upload, ChevronDown,
@@ -15,6 +16,14 @@ import {
 } from "recharts";
 import { Toaster, toast } from "sonner";
 import { useHasMounted, usePrefersReducedMotion } from "./components/ui/motion-utils";
+import { API_BASE, fetchJson } from "../../utils/api";
+import {
+  emptyKpiData, kpiData, procurementStages,
+  requestTrendData, inventoryTrendData, categoryData, initialRequests,
+  mockInventory as defaultInventory, recentApprovedRequests as defaultRecentApproved,
+  returningBooksData as defaultReturningBooks, mockStudents as defaultStudents,
+  mockAuditLogs as defaultAuditLogs, mockNotifications as defaultNotifications,
+} from "../../config/adminDefaults";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +36,7 @@ interface Student {
 }
 
 type LifecycleStage = "Requested" | "Approved" | "Ordered" | "Reached Office" | "Ready For Collection" | "Collected By Student" | "Returned";
+type ProcurementStage = LifecycleStage | "Rejected" | "Completed";
 type BookDecision = "Pending" | "Approved" | "Rejected";
 
 interface LibraryBookItem {
@@ -34,12 +44,13 @@ interface LibraryBookItem {
 }
 
 interface SpecialBookItem {
-  id: string; title: string; author: string; status: BookDecision | "Buy"; procurementStage: LifecycleStage; isMarkedForPurchase?: boolean;
+  id: string; title: string; author: string; status: BookDecision | "Buy"; procurementStage: ProcurementStage; isMarkedForPurchase?: boolean; index?: number;
 }
 
 interface RequestRecord {
+  requestId: string;
   appNo: string; student: string; studentId: string; dept: string; semester: string;
-  type: "Online" | "Manual"; created: string; challanNo: string; status: "Pending" | "Completed";
+  type: "Online" | "Manual"; created: string; challanNo: string; status: "Pending" | "Approved" | "Procured" | "Rejected" | "Returned" | "Completed";
   libraryBooks: LibraryBookItem[];
   specialBooks: SpecialBookItem[];
   remark?: string;
@@ -67,215 +78,18 @@ function formatStudentId(value: number): string {
   return `S${String(value).padStart(5, "0")}`;
 }
 
-// ─── Mock Data ──────────────────────────────────────────────────────────────
 
-const kpiData = [
-  { label: "Total Books", value: 2847, icon: BookOpen, trend: 4.2, color: "blue", sub: "Across all categories" },
-  { label: "Books Issued", value: 642, icon: BookMarked, trend: 8.1, color: "sky", sub: "Currently with students" },
-  { label: "Pending Requests", value: 28, icon: Clock, trend: -3.4, color: "amber", sub: "Awaiting approval" },
-  { label: "Manual Requests", value: 12, icon: FileText, trend: 2.0, color: "purple", sub: "Walk-in requests" },
-  { label: "Available Inventory", value: 2205, icon: Archive, trend: -1.2, color: "green", sub: "Ready to issue" },
-  { label: "Returned Books", value: 184, icon: RefreshCw, trend: 12.3, color: "teal", sub: "This month" },
-  { label: "Pending Returns", value: 31, icon: AlertCircle, trend: 5.6, color: "orange", sub: "Overdue or upcoming" },
-  { label: "Late Returns", value: 8, icon: XCircle, trend: -15.0, color: "red", sub: "Fine applicable" },
-];
+const mockInventory: InventoryBook[] = defaultInventory as InventoryBook[];
 
-const requestTrendData = [
-  { month: "Jan", online: 42, manual: 8 }, { month: "Feb", online: 55, manual: 12 },
-  { month: "Mar", online: 48, manual: 9 }, { month: "Apr", online: 70, manual: 15 },
-  { month: "May", online: 65, manual: 11 }, { month: "Jun", online: 82, manual: 18 },
-  { month: "Jul", online: 91, manual: 20 }, { month: "Aug", online: 78, manual: 14 },
-];
+const recentApprovedRequests = defaultRecentApproved as any[];
 
-const inventoryTrendData = [
-  { month: "Jan", added: 120, issued: 80 }, { month: "Feb", added: 45, issued: 95 },
-  { month: "Mar", added: 200, issued: 110 }, { month: "Apr", added: 75, issued: 88 },
-  { month: "May", added: 150, issued: 102 }, { month: "Jun", added: 90, issued: 78 },
-  { month: "Jul", added: 60, issued: 95 }, { month: "Aug", added: 180, issued: 120 },
-];
+const returningBooksData = defaultReturningBooks as any[];
 
-const categoryData = [
-  { name: "Engineering", value: 840, color: "#2563EB" },
-  { name: "Science", value: 520, color: "#0EA5E9" },
-  { name: "Commerce", value: 410, color: "#10B981" },
-  { name: "Arts", value: 380, color: "#F59E0B" },
-  { name: "Medicine", value: 290, color: "#8B5CF6" },
-  { name: "Law", value: 407, color: "#EC4899" },
-];
+const mockStudents: Student[] = defaultStudents as Student[];
 
-const procurementStages: LifecycleStage[] = ["Requested", "Approved", "Ordered", "Reached Office", "Ready For Collection", "Collected By Student", "Returned"];
+const mockAuditLogs: AuditEntry[] = defaultAuditLogs as AuditEntry[];
 
-const initialRequests: RequestRecord[] = [
-  {
-    appNo: "APP-2024-001",
-    student: "Arjun Sharma",
-    studentId: formatStudentId(1),
-    dept: "Computer Science",
-    semester: "5th",
-    status: "Pending",
-    type: "Online",
-    created: "2024-08-12",
-    challanNo: "CHL-2024-001",
-    libraryBooks: [
-      { id: "LB-001", title: "Data Structures & Algorithms", author: "Cormen", status: "Pending" },
-      { id: "LB-002", title: "DBMS by Navathe", author: "Navathe", status: "Pending" },
-    ],
-    specialBooks: [
-      { id: "SB-001", title: "Advanced Operating Systems", author: "Silberschatz", status: "Pending", procurementStage: "Requested" },
-    ],
-  },
-  {
-    appNo: "APP-2024-002",
-    student: "Priya Verma",
-    studentId: formatStudentId(2),
-    dept: "Electrical Engineering",
-    semester: "3rd",
-    status: "Pending",
-    type: "Online",
-    created: "2024-08-11",
-    challanNo: "CHL-2024-002",
-    libraryBooks: [
-      { id: "LB-003", title: "Circuit Theory", author: "Hayt", status: "Pending" },
-      { id: "LB-004", title: "Electromagnetics by Hayt", author: "Hayt", status: "Pending" },
-    ],
-    specialBooks: [
-      { id: "SB-002", title: "Digital Signal Processing", author: "Oppenheim", status: "Pending", procurementStage: "Approved" },
-    ],
-  },
-  {
-    appNo: "APP-2024-003",
-    student: "Rohit Gupta",
-    studentId: formatStudentId(3),
-    dept: "Mechanical Engineering",
-    semester: "7th",
-    status: "Pending",
-    type: "Manual",
-    created: "2024-08-10",
-    challanNo: "CHL-2024-003",
-    libraryBooks: [
-      { id: "LB-005", title: "Thermodynamics", author: "Cengel", status: "Pending" },
-      { id: "LB-006", title: "Fluid Mechanics by Munson", author: "Munson", status: "Pending" },
-    ],
-    specialBooks: [
-      { id: "SB-003", title: "Engineering Materials", author: "Callister", status: "Pending", procurementStage: "Requested" },
-      { id: "SB-004", title: "Machine Design", author: "Shigley", status: "Pending", procurementStage: "Requested" },
-    ],
-  },
-  {
-    appNo: "APP-2024-004",
-    student: "Neha Patel",
-    studentId: formatStudentId(4),
-    dept: "Civil Engineering",
-    semester: "1st",
-    status: "Completed",
-    type: "Online",
-    created: "2024-08-09",
-    challanNo: "CHL-2024-004",
-    libraryBooks: [
-      { id: "LB-007", title: "Engineering Drawing", author: "N. D. Bhatt", status: "Approved" },
-      { id: "LB-008", title: "Engineering Mechanics", author: "Beer", status: "Rejected" },
-    ],
-    specialBooks: [
-      { id: "SB-005", title: "Surveying Handbook", author: "Mannering", status: "Approved", procurementStage: "Reached Office", isMarkedForPurchase: true },
-    ],
-  },
-  {
-    appNo: "APP-2024-005",
-    student: "Vikram Singh",
-    studentId: formatStudentId(5),
-    dept: "Computer Science",
-    semester: "5th",
-    status: "Pending",
-    type: "Online",
-    created: "2024-08-08",
-    challanNo: "CHL-2024-005",
-    libraryBooks: [
-      { id: "LB-009", title: "Operating Systems by Galvin", author: "Galvin", status: "Pending" },
-      { id: "LB-010", title: "Computer Networks by Tanenbaum", author: "Tanenbaum", status: "Pending" },
-    ],
-    specialBooks: [
-      { id: "SB-006", title: "Software Engineering by Sommerville", author: "Sommerville", status: "Pending", procurementStage: "Requested" },
-    ],
-  },
-  {
-    appNo: "APP-2024-006",
-    student: "Ananya Krishnan",
-    studentId: formatStudentId(6),
-    dept: "Electronics",
-    semester: "3rd",
-    status: "Pending",
-    type: "Manual",
-    created: "2024-08-07",
-    challanNo: "CHL-2024-006",
-    libraryBooks: [
-      { id: "LB-011", title: "Digital Electronics by Floyd", author: "Floyd", status: "Pending" },
-    ],
-    specialBooks: [
-      { id: "SB-007", title: "Microprocessor Design", author: "Morris Mano", status: "Pending", procurementStage: "Ordered" },
-    ],
-  },
-];
-
-const mockInventory: InventoryBook[] = [
-  { id: "BK-001", name: "Data Structures & Algorithms", author: "Cormen, Leiserson", publisher: "MIT Press", category: "Computer Science", edition: "4th", copies: 12, available: 8 },
-  { id: "BK-002", name: "Database Management Systems", author: "Ramakrishnan & Gehrke", publisher: "McGraw-Hill", category: "Computer Science", edition: "3rd", copies: 8, available: 5 },
-  { id: "BK-003", name: "Engineering Mathematics Vol.1", author: "B.S. Grewal", publisher: "Khanna Publishers", category: "Mathematics", edition: "44th", copies: 20, available: 14 },
-  { id: "BK-004", name: "Thermodynamics: An Engineering Approach", author: "Cengel & Boles", publisher: "McGraw-Hill", category: "Mechanical", edition: "8th", copies: 10, available: 6 },
-  { id: "BK-005", name: "Circuit Theory & Networks", author: "A. Chakrabarti", publisher: "Dhanpat Rai", category: "Electrical", edition: "9th", copies: 15, available: 11 },
-  { id: "BK-006", name: "Operating System Concepts", author: "Galvin, Gagne", publisher: "Wiley", category: "Computer Science", edition: "10th", copies: 9, available: 3 },
-  { id: "BK-007", name: "Strength of Materials", author: "R.K. Bansal", publisher: "Laxmi Publications", category: "Civil", edition: "5th", copies: 14, available: 9 },
-  { id: "BK-008", name: "Fluid Mechanics", author: "Frank M. White", publisher: "McGraw-Hill", category: "Mechanical", edition: "8th", copies: 7, available: 4 },
-  { id: "BK-009", name: "Introduction to Algorithms", author: "Cormen, Leiserson, Rivest", publisher: "MIT Press", category: "Computer Science", edition: "3rd", copies: 18, available: 12 },
-  { id: "BK-010", name: "Signals and Systems", author: "Simon Haykin", publisher: "Wiley", category: "Electrical", edition: "2nd", copies: 11, available: 7 },
-  { id: "BK-011", name: "Concrete Technology", author: "M.S. Shetty", publisher: "S. Chand", category: "Civil", edition: "3rd", copies: 9, available: 5 },
-  { id: "BK-012", name: "Modern Control Engineering", author: "Katsuhiko Ogata", publisher: "Pearson", category: "Electronics", edition: "5th", copies: 13, available: 10 },
-  { id: "BK-013", name: "Environmental Engineering", author: "Peavy, Rowe", publisher: "McGraw-Hill", category: "Science", edition: "4th", copies: 6, available: 4 },
-  { id: "BK-014", name: "Engineering Economics", author: "R.P. Rustagi", publisher: "S. Chand", category: "Commerce", edition: "7th", copies: 10, available: 8 },
-];
-
-const recentApprovedRequests = [
-  { student: "Arjun Sharma", studentId: formatStudentId(1), requestNo: "APP-2024-004", books: 3, approvedOn: "2024-08-13", status: "Completed" },
-  { student: "Neha Patel", studentId: formatStudentId(4), requestNo: "APP-2024-009", books: 2, approvedOn: "2024-08-11", status: "Completed" },
-  { student: "Priya Verma", studentId: formatStudentId(2), requestNo: "APP-2024-010", books: 1, approvedOn: "2024-08-10", status: "Completed" },
-];
-
-const returningBooksData = [
-  { student: "Vikram Singh", studentId: formatStudentId(5), title: "Operating System Concepts", issueDate: "2024-07-20", dueDate: "2024-08-19", remainingDays: 4, status: "Critical" },
-  { student: "Ananya Krishnan", studentId: formatStudentId(6), title: "Modern Control Engineering", issueDate: "2024-07-25", dueDate: "2024-08-24", remainingDays: 9, status: "Due Soon" },
-  { student: "Deepak Nair", studentId: formatStudentId(7), title: "Data Structures & Algorithms", issueDate: "2024-07-18", dueDate: "2024-08-17", remainingDays: 2, status: "Critical" },
-  { student: "Rohit Gupta", studentId: formatStudentId(3), title: "Thermodynamics: An Engineering Approach", issueDate: "2024-07-12", dueDate: "2024-08-11", remainingDays: -2, status: "Critical" },
-  { student: "Neha Patel", studentId: formatStudentId(4), title: "Surveying Handbook", issueDate: "2024-07-22", dueDate: "2024-08-21", remainingDays: 6, status: "Due Soon" },
-];
-
-const mockStudents: Student[] = [
-  { id: formatStudentId(1), name: "Arjun Sharma", dept: "Computer Science", semester: "5th", phone: "9876543210", email: "arjun.sharma@svga.edu.in", membership: "Standard", status: "Active", created: "2021-07-15" },
-  { id: formatStudentId(2), name: "Priya Verma", dept: "Electrical Engineering", semester: "3rd", phone: "9876512345", email: "priya.verma@svga.edu.in", membership: "Premium", status: "Active", created: "2022-07-20" },
-  { id: formatStudentId(3), name: "Rohit Gupta", dept: "Mechanical Engineering", semester: "7th", phone: "9123456789", email: "rohit.gupta@svga.edu.in", membership: "Standard", status: "Active", created: "2020-07-12" },
-  { id: formatStudentId(4), name: "Neha Patel", dept: "Civil Engineering", semester: "1st", phone: "9988776655", email: "neha.patel@svga.edu.in", membership: "Standard", status: "Active", created: "2023-07-18" },
-  { id: formatStudentId(5), name: "Vikram Singh", dept: "Computer Science", semester: "5th", phone: "9765432100", email: "vikram.singh@svga.edu.in", membership: "Standard", status: "Suspended", created: "2021-07-14" },
-  { id: formatStudentId(6), name: "Ananya Krishnan", dept: "Electronics", semester: "3rd", phone: "9871234560", email: "ananya.k@svga.edu.in", membership: "Premium", status: "Active", created: "2022-07-22" },
-  { id: formatStudentId(7), name: "Deepak Nair", dept: "Computer Science", semester: "8th", phone: "9543210987", email: "deepak.nair@svga.edu.in", membership: "Standard", status: "Inactive", created: "2019-07-10" },
-];
-
-const mockAuditLogs: AuditEntry[] = [
-  { id: "AL-001", timestamp: "2024-08-12 14:32:15", admin: "Admin Suresh", action: "Approved Request", module: "Book Requests", result: "Success", details: "Approved APP-2024-002 for Priya Verma" },
-  { id: "AL-002", timestamp: "2024-08-12 13:18:42", admin: "Admin Suresh", action: "Added Book", module: "Inventory", result: "Success", details: "Added 10 copies of 'Advanced Java Programming'" },
-  { id: "AL-003", timestamp: "2024-08-12 11:05:30", admin: "Admin Meena", action: "Suspended Student", module: "Students", result: "Warning", details: `Suspended ${formatStudentId(5)} (Vikram Singh) — policy violation` },
-  { id: "AL-004", timestamp: "2024-08-11 16:44:09", admin: "Admin Suresh", action: "Rejected Request", module: "Book Requests", result: "Success", details: "Rejected APP-2024-005; book not available in required quantity" },
-  { id: "AL-005", timestamp: "2024-08-11 10:22:57", admin: "Admin Meena", action: "Exported Data", module: "Inventory", result: "Success", details: "Exported inventory report as XLSX" },
-  { id: "AL-006", timestamp: "2024-08-10 15:30:12", admin: "System", action: "Backup Created", module: "System", result: "Success", details: "Automated daily backup completed — 48 MB" },
-  { id: "AL-007", timestamp: "2024-08-10 09:11:33", admin: "Admin Meena", action: "Login Failed", module: "Auth", result: "Failed", details: "3 consecutive failed login attempts detected" },
-];
-
-const mockNotifications: Notification[] = [
-  { id: "N-001", type: "request", message: "New book request APP-2024-007 submitted by Kavitha Reddy", timestamp: "10 minutes ago", read: false, group: "Today" },
-  { id: "N-002", type: "inventory", message: "Low stock alert: 'Operating System Concepts' — only 3 copies remaining", timestamp: "1 hour ago", read: false, group: "Today" },
-  { id: "N-003", type: "student", message: `Student ${formatStudentId(8)} completed registration — pending membership approval`, timestamp: "3 hours ago", read: false, group: "Today" },
-  { id: "N-004", type: "system", message: "Automated backup completed successfully — 48 MB", timestamp: "6 hours ago", read: true, group: "Today" },
-  { id: "N-005", type: "request", message: "APP-2024-003 has been pending for more than 48 hours — action required", timestamp: "Yesterday, 4:20 PM", read: true, group: "Yesterday" },
-  { id: "N-006", type: "inventory", message: "New book batch received: 25 copies of 'Engineering Mathematics'", timestamp: "Yesterday, 10:05 AM", read: true, group: "Yesterday" },
-  { id: "N-007", type: "student", message: "Late return fine applied to Vikram Singh — ₹ 80", timestamp: "2 days ago", read: true, group: "Earlier" },
-];
+const mockNotifications: Notification[] = defaultNotifications as Notification[];
 
 // ─── Color helpers ──────────────────────────────────────────────────────────
 
@@ -307,6 +121,30 @@ const statusColors: Record<string, string> = {
 };
 
 const autoBuyRemark = "The requested book can be purchased by the student. While returning the book to the SVGA office, please carry the original physical purchase invoice. The reimbursement amount will be processed only after invoice verification as per community guidelines.";
+
+function determineRequestStatus(request: RequestRecord, specialBooks: SpecialBookItem[]) {
+  const hasLibraryBooks = request.libraryBooks.length > 0;
+  const hasSpecialBooks = specialBooks.length > 0;
+  const anyApproved = request.libraryBooks.some((book) => book.status === 'Approved') || specialBooks.some((book) => book.status === 'Approved');
+  const anyBuy = specialBooks.some((book) => book.status === 'Buy');
+  const allLibraryDecided = !hasLibraryBooks || request.libraryBooks.every((book) => book.status !== 'Pending');
+  const allSpecialDecided = !hasSpecialBooks || specialBooks.every((book) => book.status !== 'Pending');
+  const allRejected = (hasLibraryBooks ? request.libraryBooks.every((book) => book.status === 'Rejected') : true) && (hasSpecialBooks ? specialBooks.every((book) => book.status === 'Rejected') : true);
+
+  if (anyBuy) return 'Completed';
+  if (anyApproved) return 'Approved';
+  if (allLibraryDecided && allSpecialDecided && allRejected) return 'Rejected';
+  return request.status;
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[140px_1fr] py-2 border-b border-slate-100 last:border-b-0">
+      <div className="text-xs uppercase tracking-[0.2em] text-slate-400">{label}</div>
+      <div className="text-sm font-medium text-slate-700">{value}</div>
+    </div>
+  );
+}
 
 const notifIconMap: Record<string, { icon: typeof Bell; color: string }> = {
   request:   { icon: FileText, color: "text-blue-600 bg-blue-50" },
@@ -434,8 +272,9 @@ function DashboardCharts() {
   );
 }
 
-function ProcurementTimeline({ currentStage }: { currentStage: LifecycleStage }) {
-  const currentIndex = procurementStages.indexOf(currentStage);
+function ProcurementTimeline({ currentStage }: { currentStage: ProcurementStage }) {
+  const currentIndex = procurementStages.indexOf(currentStage as LifecycleStage);
+  const isSpecialStage = currentStage === "Rejected" || currentStage === "Completed";
   return (
     <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-sky-50 p-4">
       <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 mb-4">
@@ -444,8 +283,8 @@ function ProcurementTimeline({ currentStage }: { currentStage: LifecycleStage })
       </div>
       <div className="flex items-center gap-2 overflow-x-auto">
         {procurementStages.map((stage, index) => {
-          const done = index <= currentIndex;
-          const active = index === currentIndex;
+          const done = isSpecialStage ? index === procurementStages.length - 1 : index <= currentIndex;
+          const active = isSpecialStage ? false : index === currentIndex;
           return (
             <div key={stage} className="flex items-center min-w-[90px] flex-1">
               <div className="flex flex-1 flex-col items-center gap-2">
@@ -454,7 +293,7 @@ function ProcurementTimeline({ currentStage }: { currentStage: LifecycleStage })
                 </div>
                 <span className={`text-[10px] text-center font-medium ${done ? "text-blue-700" : "text-slate-400"}`}>{stage}</span>
               </div>
-              {index < procurementStages.length - 1 && <div className={`mx-2 h-0.5 flex-1 rounded-full ${index < currentIndex ? "bg-blue-500" : "bg-slate-200"}`} />}
+              {index < procurementStages.length - 1 && <div className={`mx-2 h-0.5 flex-1 rounded-full ${done ? "bg-blue-500" : "bg-slate-200"}`} />}
             </div>
           );
         })}
@@ -463,10 +302,10 @@ function ProcurementTimeline({ currentStage }: { currentStage: LifecycleStage })
   );
 }
 
-function LifecycleDropdown({ value, onChange, disabled }: { value: LifecycleStage; onChange: (value: LifecycleStage) => void; disabled?: boolean }) {
+function StageDropdown({ value, onChange, disabled }: { value: LifecycleStage; onChange: (value: LifecycleStage) => void; disabled?: boolean }) {
   return (
     <label className="flex flex-col gap-2 text-sm text-slate-600">
-      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Lifecycle</span>
+      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Procurement Cycle</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as LifecycleStage)}
@@ -479,6 +318,7 @@ function LifecycleDropdown({ value, onChange, disabled }: { value: LifecycleStag
     </label>
   );
 }
+
 
 function RemarksSection({ remark, onChange, editable }: { remark: string; onChange?: (value: string) => void; editable?: boolean }) {
   return (
@@ -563,6 +403,7 @@ function ChallanModal({ children, title, subtitle, label, onClose }: { children:
 
 function LibraryBookCard({ book, onApprove, onReject }: { book: LibraryBookItem; onApprove: () => void; onReject: () => void }) {
   const badge = book.status === "Approved" ? "bg-emerald-100 text-emerald-700" : book.status === "Rejected" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700";
+  const actionPending = book.status === "Pending";
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -574,17 +415,22 @@ function LibraryBookCard({ book, onApprove, onReject }: { book: LibraryBookItem;
       </div>
       <div className="mt-4 flex items-center justify-between">
         <span className="text-sm text-slate-500">Current status</span>
-        <div className="flex items-center gap-2">
-          <button onClick={onReject} className="rounded-xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50">Reject</button>
-          <button onClick={onApprove} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">Approve</button>
-        </div>
+        {actionPending ? (
+          <div className="flex items-center gap-2">
+            <button onClick={onReject} className="rounded-xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50">Reject</button>
+            <button onClick={onApprove} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">Approve</button>
+          </div>
+        ) : (
+          <span className="text-xs text-slate-400">Tentative decision until final submit</span>
+        )}
       </div>
     </div>
   );
 }
 
-function SpecialBookCard({ book, onApprove, onReject, onBuy, onStageChange }: { book: SpecialBookItem; onApprove: () => void; onReject: () => void; onBuy: () => void; onStageChange: (stage: LifecycleStage) => void }) {
+function SpecialBookCard({ book, onApprove, onReject, onBuy, onStageChange }: { book: SpecialBookItem; onApprove: () => void; onReject: () => void; onBuy: () => void; onStageChange: (value: ProcurementStage) => void }) {
   const badge = book.isMarkedForPurchase ? "bg-violet-100 text-violet-700" : book.status === "Approved" ? "bg-emerald-100 text-emerald-700" : book.status === "Rejected" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700";
+  const actionPending = book.status === "Pending";
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -594,22 +440,33 @@ function SpecialBookCard({ book, onApprove, onReject, onBuy, onStageChange }: { 
         </div>
         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badge}`}>{book.isMarkedForPurchase ? "Buy" : book.status}</span>
       </div>
-      <div className="mt-4">
-        <ProcurementTimeline currentStage={book.procurementStage} />
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_auto]">
+        <div>
+          {procurementStages.includes(book.procurementStage as LifecycleStage) && book.status !== 'Rejected' && book.status !== 'Buy' ? (
+            <StageDropdown value={book.procurementStage as LifecycleStage} onChange={onStageChange} />
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              Current stage: <span className="font-semibold text-slate-800">{book.procurementStage}</span>
+            </div>
+          )}
+        </div>
+        <div className="min-w-[180px]">
+          <ProcurementTimeline currentStage={book.procurementStage} />
+        </div>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-        <LifecycleDropdown value={book.procurementStage} onChange={onStageChange} />
-        <div className="flex items-end justify-end gap-2">
+      {actionPending && (
+        <div className="mt-4 flex items-center justify-end gap-2">
           <button onClick={onReject} className="rounded-xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-600 transition hover:bg-rose-50">Reject</button>
           <button onClick={onApprove} className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700">Approve</button>
           <button onClick={onBuy} className="rounded-xl border border-violet-200 px-3 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-50">Buy</button>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 function PendingRequestChallan({ request, onClose, onUpdateRequest, onFinalize }: { request: RequestRecord; onClose: () => void; onUpdateRequest: (updated: RequestRecord) => void; onFinalize: (requestId: string) => void }) {
+  const { token } = useAuth();
   const [openSection, setOpenSection] = useState<string | null>("student");
   const toggle = (k: string) => setOpenSection((p) => (p === k ? null : k));
   const allDecisionsMade = request.libraryBooks.every((book) => book.status !== "Pending") && request.specialBooks.every((book) => book.status !== "Pending");
@@ -632,22 +489,50 @@ function PendingRequestChallan({ request, onClose, onUpdateRequest, onFinalize }
     </div>
   );
 
-  const InfoRow = ({ label, value }: { label: string; value: string }) => (
-    <div className="flex items-center justify-between border-b border-slate-50 py-2 text-sm last:border-0">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-medium text-slate-800">{value}</span>
-    </div>
-  );
-
   const updateLibraryBook = (bookId: string, status: BookDecision) => {
-    const next = { ...request, libraryBooks: request.libraryBooks.map((book) => (book.id === bookId ? { ...book, status } : book)) };
-    onUpdateRequest(next);
+    const nextLibraryBooks = request.libraryBooks.map((book) => (book.id === bookId ? { ...book, status } : book));
+    const nextStatus = determineRequestStatus({ ...request, libraryBooks: nextLibraryBooks }, request.specialBooks);
+    onUpdateRequest({ ...request, status: nextStatus, libraryBooks: nextLibraryBooks });
+    toast.success(`Library book decision marked. Final Submit will persist the choice.`);
   };
 
-  const updateSpecialBook = (bookId: string, changes: Partial<SpecialBookItem>) => {
-    const nextSpecialBooks = request.specialBooks.map((book) => (book.id === bookId ? { ...book, ...changes } : book));
-    const nextRemark = computeRemark(nextSpecialBooks, request.remark);
-    onUpdateRequest({ ...request, specialBooks: nextSpecialBooks, remark: nextRemark });
+  const updateSpecialBook = async (bookId: string, decision: BookDecision | "Buy") => {
+    try {
+      const payload: any = { decision, isManualBook: true };
+      const bookIndex = request.specialBooks.findIndex((book) => book.id === bookId);
+      if (bookIndex >= 0) payload.bookIndex = bookIndex;
+
+      const data = await fetchJson<{ success: boolean; request?: any }>(`${API_BASE}/admin/requests/${request.requestId}/book-decision`, token, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      if (data?.request) {
+        const nextSpecialBooks = request.specialBooks.map((book) =>
+          book.id === bookId
+            ? {
+                ...book,
+                status: decision,
+                isMarkedForPurchase: decision === 'Buy',
+                procurementStage:
+                  decision === 'Rejected' ? 'Rejected' : decision === 'Buy' ? 'Completed' : decision === 'Approved' ? 'Approved' : book.procurementStage,
+              }
+            : book
+        );
+        const nextRemark = computeRemark(nextSpecialBooks, request.remark);
+        const nextStatus = determineRequestStatus(request, nextSpecialBooks);
+        onUpdateRequest({ ...request, status: nextStatus, specialBooks: nextSpecialBooks, remark: nextRemark });
+        toast.success(`Special book ${decision === 'Buy' ? 'marked for purchase' : decision.toLowerCase()} successfully.`);
+      }
+    } catch (err) {
+      toast.error(`Failed to update the special book. ${String((err as Error).message)}`);
+    }
+  };
+
+  const updateSpecialBookStage = (bookId: string, procurementStage: ProcurementStage) => {
+    const nextSpecialBooks = request.specialBooks.map((book) =>
+      book.id === bookId ? { ...book, procurementStage } : book
+    );
+    onUpdateRequest({ ...request, specialBooks: nextSpecialBooks });
   };
 
   const updateRemark = (value: string) => {
@@ -676,10 +561,10 @@ function PendingRequestChallan({ request, onClose, onUpdateRequest, onFinalize }
               <SpecialBookCard
                 key={book.id}
                 book={book}
-                onApprove={() => updateSpecialBook(book.id, { status: "Approved", isMarkedForPurchase: false })}
-                onReject={() => updateSpecialBook(book.id, { status: "Rejected", isMarkedForPurchase: false })}
-                onBuy={() => updateSpecialBook(book.id, { status: "Buy", isMarkedForPurchase: true })}
-                onStageChange={(stage) => updateSpecialBook(book.id, { procurementStage: stage })}
+                onApprove={() => updateSpecialBook(book.id, "Approved")}
+                onReject={() => updateSpecialBook(book.id, "Rejected")}
+                onBuy={() => updateSpecialBook(book.id, "Buy")}
+                onStageChange={(stage) => updateSpecialBookStage(book.id, stage)}
               />
             ))}
           </div>
@@ -780,7 +665,7 @@ function CompletedRequestChallan({ request, onClose }: { request: RequestRecord;
   );
 }
 
-function ManualPurchaseCard({ request, book, selected, onSelect, onViewChallan, onStageChange }: { request: RequestRecord; book: SpecialBookItem; selected: boolean; onSelect: () => void; onViewChallan: () => void; onStageChange: (stage: LifecycleStage) => void }) {
+function ManualPurchaseCard({ request, book, selected, onSelect, onViewChallan }: { request: RequestRecord; book: SpecialBookItem; selected: boolean; onSelect: () => void; onViewChallan: () => void }) {
   return (
     <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -797,11 +682,17 @@ function ManualPurchaseCard({ request, book, selected, onSelect, onViewChallan, 
         </label>
         <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700">{book.procurementStage}</span>
       </div>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <LifecycleDropdown value={book.procurementStage} onChange={onStageChange} />
-        <div className="flex items-end justify-end gap-2">
-          <button onClick={onViewChallan} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">View Full Challan</button>
+
+      <div className="mt-4 rounded-3xl border border-slate-100 bg-slate-50 p-4">
+        <div className="flex items-center justify-between mb-4 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+          <span>Procurement Cycle</span>
+          <span className="text-violet-700">{book.procurementStage}</span>
         </div>
+        <ProcurementTimeline currentStage={book.procurementStage} />
+      </div>
+
+      <div className="mt-4 flex items-end justify-end gap-2">
+        <button onClick={onViewChallan} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">View Full Challan</button>
       </div>
     </div>
   );
@@ -940,6 +831,33 @@ function Pagination({ total, page, setPage, perPage = 5 }: { total: number; page
 
 function DashboardPage() {
   const reduced = usePrefersReducedMotion();
+  const { token } = useAuth();
+  const [dashboard, setDashboard] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const data = await fetchJson<any>(`${API_BASE}/admin/dashboard`, token);
+        if (isMounted) setDashboard(data?.dashboard || null);
+      } catch {
+        if (isMounted) setDashboard(null);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
+  const kpis = dashboard?.kpis || kpiData;
+  const recentRequests = dashboard?.recentRequests || recentApprovedRequests;
+  const returnTimeline = dashboard?.returnTimeline || returningBooksData;
+
   return (
     <div className={`space-y-6 ${reduced ? "" : "page-enter"}`}>
       <div>
@@ -948,7 +866,11 @@ function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {kpiData.map(item => <KPICard key={item.label} item={item} />)}
+        {loading ? (
+          <div className="col-span-full rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Loading dashboard metrics…</div>
+        ) : (
+          kpis.map((item: any) => <KPICard key={item.label} item={{ ...item, value: item.value ?? item.count ?? 0, trend: item.trend ?? 0, sub: item.sub ?? "Live data" }} />)
+        )}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -959,22 +881,22 @@ function DashboardPage() {
                 <h2 className="text-sm font-semibold text-slate-900">Recent Approved Requests</h2>
                 <p className="text-xs text-slate-500">Latest completed workflows from the last week.</p>
               </div>
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{recentApprovedRequests.length} records</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{recentRequests.length} records</span>
             </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {recentApprovedRequests.map((item) => (
+            {recentRequests.map((item: any) => (
               <div key={item.requestNo} className="px-6 py-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{item.student}</p>
                     <p className="text-xs text-slate-500">{item.studentId} · {item.requestNo}</p>
                   </div>
-                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-full px-3 py-1">{item.status}</span>
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-full px-3 py-1">{item.status || "Completed"}</span>
                 </div>
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{item.books} books</span>
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Approved {item.approvedOn}</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{item.books || item.bookCount || 0} books</span>
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Approved {item.approvedOn || item.createdAt || "recently"}</span>
                 </div>
               </div>
             ))}
@@ -988,7 +910,7 @@ function DashboardPage() {
                 <h2 className="text-sm font-semibold text-slate-900">Books Due for Return</h2>
                 <p className="text-xs text-slate-500">Monitor upcoming deadlines and overdue status.</p>
               </div>
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{returningBooksData.length} students</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{returnTimeline.length} students</span>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -1002,16 +924,16 @@ function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {returningBooksData.map((item) => (
+                {returnTimeline.map((item: any) => (
                   <tr key={`${item.studentId}-${item.title}`} className="hover:bg-slate-50 transition-colors">
                     <td className="px-5 py-4">
-                      <div className="font-medium text-slate-900">{item.student}</div>
-                      <div className="text-xs text-slate-500">{item.studentId}</div>
+                      <div className="font-medium text-slate-900">{item.student || item.studentName}</div>
+                      <div className="text-xs text-slate-500">{item.studentId || item.studentNumber || ""}</div>
                     </td>
-                    <td className="px-5 py-4 text-slate-700">{item.title}</td>
-                    <td className="px-5 py-4 text-slate-700">{item.dueDate}</td>
+                    <td className="px-5 py-4 text-slate-700">{item.title || item.bookTitle}</td>
+                    <td className="px-5 py-4 text-slate-700">{item.dueDate || item.returnDate}</td>
                     <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.status === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{item.status}</span>
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${item.status === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{item.status || (item.daysRemaining <= 2 ? 'Critical' : 'Due Soon')}</span>
                     </td>
                   </tr>
                 ))}
@@ -1034,7 +956,57 @@ function RequestsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All Status");
   const [deptFilter, setDeptFilter] = useState("All Departments");
-  const [requests, setRequests] = useState<RequestRecord[]>(initialRequests);
+  const [requests, setRequests] = useState<RequestRecord[]>(initialRequests as RequestRecord[]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const { token } = useAuth();
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoadingRequests(true);
+      try {
+        const data = await fetchJson<{ success: boolean; requests?: any[] }>(`${API_BASE}/admin/requests`, token);
+        if (!isMounted) return;
+        if (data?.requests && Array.isArray(data.requests)) {
+          const mapped: RequestRecord[] = data.requests.map((r: any) => ({
+            requestId: String(r._id || r.id || ''),
+            appNo: r.requestNo || String(r._id || r.id || ''),
+            student: r.studentName || r.userId?.name || r.student || 'Unknown',
+            studentId: r.studentId || r.userId?.studentId || (r.userId?._id ? String(r.userId._id) : ''),
+            dept: r.studentCourse || r.dept || r.userId?.course || 'Unknown',
+            semester: r.studentYear || r.semester || '',
+            type: r.type === 'Manual' || (r.requestedBooks && r.requestedBooks.length) ? 'Manual' : 'Online',
+            created: r.createdAt || r.created || (r.updatedAt || ''),
+            challanNo: r.challanNo || r.challan || '',
+            status: r.status || 'Pending',
+            libraryBooks: (Array.isArray(r.selectedBooks) ? r.selectedBooks : r.libraryBooks || []).map((b: any, idx: number) => ({
+              id: String((Array.isArray(r.selectedBookIds) ? r.selectedBookIds[idx]?.toString?.() ?? r.selectedBookIds[idx] : '') || b._id || b.id || b.bookId || ''),
+              title: b.title || b.bookTitle || '',
+              author: b.author || '',
+              status: b.decision || 'Pending',
+            })),
+            specialBooks: (r.requestedBooks || r.specialBooks || []).map((b: any, idx: number) => ({
+              id: String(b._id || b.id || `${r._id}:${idx}`),
+              title: b.title || '',
+              author: b.author || '',
+              status: b.decision || 'Pending',
+              procurementStage: b.procurementStage || 'Requested',
+              index: idx,
+            })),
+            remark: r.remark || '',
+          }));
+          setRequests(mapped);
+        }
+      } catch (e) {
+        // keep mock data
+      } finally {
+        if (isMounted) setLoadingRequests(false);
+      }
+    };
+
+    load();
+    return () => { isMounted = false; };
+  }, [token]);
   const [selectedRequest, setSelectedRequest] = useState<RequestRecord | null>(null);
   const [selectedManualBooks, setSelectedManualBooks] = useState<string[]>([]);
   const [exportModal, setExportModal] = useState<"pdf" | "csv" | null>(null);
@@ -1056,7 +1028,7 @@ function RequestsPage() {
     { key: "manual", label: "Manual Purchase", count: requests.filter((r) => r.type === "Manual").length },
   ] as const;
 
-  const manualPurchaseBooks = requests.flatMap((request) => request.specialBooks.filter((book) => book.isMarkedForPurchase).map((book) => ({ request, book })));
+  const manualPurchaseBooks = requests.flatMap((request) => request.specialBooks.filter((book) => book.status === 'Approved' || book.isMarkedForPurchase).map((book) => ({ request, book })));
   const selectedBookObjects = manualPurchaseBooks.filter(({ book }) => selectedManualBooks.includes(book.id));
 
   const toggleManualBook = (bookId: string) => {
@@ -1068,25 +1040,35 @@ function RequestsPage() {
     setSelectedRequest((prev) => (prev?.appNo === updated.appNo ? updated : prev));
   };
 
-  const finalizeRequest = (appNo: string) => {
-    setRequests((prev) => prev.map((request) => (request.appNo === appNo ? { ...request, status: "Completed" } : request)));
-    toast.success("Challan moved to completed requests.");
-    setSelectedRequest(null);
+  const finalizeRequest = async (appNo: string) => {
+    const currentRequest = requests.find((request) => request.appNo === appNo);
+    if (!currentRequest) return;
+    try {
+      const libraryDecisions = currentRequest.libraryBooks
+        .filter((book) => book.status !== 'Pending')
+        .map((book) => ({ bookId: book.id, decision: book.status }));
+
+      if (libraryDecisions.length > 0) {
+        await fetchJson<{ success: boolean; request?: any }>(`${API_BASE}/admin/requests/${currentRequest.requestId}/book-decision`, token, {
+          method: 'PATCH',
+          body: JSON.stringify({ decisions: libraryDecisions }),
+        });
+      }
+
+      const data = await fetchJson<{ success: boolean; request?: any }>(`${API_BASE}/admin/requests/${currentRequest.requestId}/status`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Procured' }),
+      });
+      const updatedStatus = data?.request?.status || 'Completed';
+      setRequests((prev) => prev.map((request) => (request.appNo === appNo ? { ...request, status: updatedStatus } : request)));
+      toast.success('Challan moved to completed requests.');
+    } catch (err) {
+      toast.error(`Failed to finalize request. ${String((err as Error).message)}`);
+    } finally {
+      setSelectedRequest(null);
+    }
   };
 
-  const updateManualBookStage = (bookId: string, stage: LifecycleStage) => {
-    setRequests((prev) => {
-      const next = prev.map((request) => ({
-        ...request,
-        specialBooks: request.specialBooks.map((book) => (book.id === bookId ? { ...book, procurementStage: stage } : book)),
-      }));
-      const matched = next.find((request) => request.specialBooks.some((book) => book.id === bookId));
-      if (selectedRequest?.appNo === matched?.appNo) {
-        setSelectedRequest(matched ?? null);
-      }
-      return next;
-    });
-  };
 
   return (
     <div className={`space-y-5 ${reduced ? "" : "page-enter"}`}>
@@ -1155,7 +1137,7 @@ function RequestsPage() {
           <div className="grid gap-4 xl:grid-cols-2">
             {manualPurchaseBooks.map(({ request, book }, index) => (
               <div key={book.id} className={`table-row-enter ${reduced ? "" : ""}`} style={{ animationDelay: `${index * 28}ms` }}>
-                <ManualPurchaseCard request={request} book={book} selected={selectedManualBooks.includes(book.id)} onSelect={() => toggleManualBook(book.id)} onViewChallan={() => setSelectedRequest(request)} onStageChange={(stage) => updateManualBookStage(book.id, stage)} />
+                <ManualPurchaseCard request={request} book={book} selected={selectedManualBooks.includes(book.id)} onSelect={() => toggleManualBook(book.id)} onViewChallan={() => setSelectedRequest(request)} />
               </div>
             ))}
           </div>
@@ -1174,7 +1156,41 @@ function InventoryPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [page, setPage] = useState(1);
 
-  const filtered = mockInventory.filter(b =>
+  const [inventory, setInventory] = useState<InventoryBook[]>(mockInventory);
+  const [loadingInventory, setLoadingInventory] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoadingInventory(true);
+      try {
+        const data = await fetchJson<{ success: boolean; books?: any[] }>(`${API_BASE}/books?limit=200`, null);
+        if (!isMounted) return;
+        if (Array.isArray(data.books)) {
+          const mapped = data.books.map((b: any) => ({
+            id: String(b._id || b.id || b.ISBN || b.title),
+            name: b.title || b.name || '',
+            author: b.author || '',
+            publisher: b.publisher || b.publisherName || '',
+            category: b.category || 'General',
+            edition: b.edition || '',
+            copies: Number(b.quantity || b.copies || 1),
+            available: Number(b.availableQuantity || b.available || b.copies || 0),
+          }));
+          setInventory(mapped);
+        }
+      } catch (e) {
+        // keep mockInventory
+      } finally {
+        if (isMounted) setLoadingInventory(false);
+      }
+    };
+
+    load();
+    return () => { isMounted = false; };
+  }, []);
+
+  const filtered = inventory.filter(b =>
     (!search || b.name.toLowerCase().includes(search.toLowerCase()) || b.author.toLowerCase().includes(search.toLowerCase())) &&
     (catFilter === "All Categories" || b.category === catFilter)
   );
@@ -1261,7 +1277,43 @@ function StudentsPage() {
   const [statusFilter, setStatusFilter] = useState("All Status");
   const [page, setPage] = useState(1);
 
-  const filtered = mockStudents.filter(s =>
+  const { token } = useAuth();
+  const [students, setStudents] = useState<Student[]>(mockStudents);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoadingStudents(true);
+      try {
+        const data = await fetchJson<{ success: boolean; users?: any[] }>(`${API_BASE}/admin/users`, token);
+        if (!isMounted) return;
+        if (Array.isArray(data.users)) {
+          const mapped = data.users.map((u: any) => ({
+            id: u.studentId || String(u._id || u.id || ''),
+            name: u.name || u.displayName || 'Unknown',
+            dept: u.course || u.dept || 'Unknown',
+            semester: u.academicYear || u.semester || '',
+            phone: u.phone || '',
+            email: u.email || '',
+            membership: u.membershipStatus || 'Standard',
+            status: u.status || 'Active',
+            created: u.createdAt || u.created || '',
+          }));
+          setStudents(mapped);
+        }
+      } catch (e) {
+        // keep mocks
+      } finally {
+        if (isMounted) setLoadingStudents(false);
+      }
+    };
+
+    load();
+    return () => { isMounted = false; };
+  }, [token]);
+
+  const filtered = students.filter(s =>
     (!search || s.name.toLowerCase().includes(search.toLowerCase()) || s.id.toLowerCase().includes(search.toLowerCase())) &&
     (deptFilter === "All Departments" || s.dept === deptFilter) &&
     (statusFilter === "All Status" || s.status === statusFilter)
@@ -1336,7 +1388,41 @@ function AuditLogsPage() {
   const reduced = usePrefersReducedMotion();
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("All Actions");
-  const filtered = mockAuditLogs.filter(e =>
+  const { token } = useAuth();
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>(mockAuditLogs);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoadingAudit(true);
+      try {
+        const data = await fetchJson<{ success: boolean; items?: any[] }>(`${API_BASE}/admin/audit-logs?limit=100`, token);
+        if (!isMounted) return;
+        if (Array.isArray(data.items)) {
+          const mapped: AuditEntry[] = data.items.map((a: any) => ({
+            id: String(a._id || a.id || ''),
+            timestamp: a.createdAt || a.timestamp || '',
+            admin: a.adminName || a.admin || a.admin || '',
+            action: a.action || '',
+            module: a.module || '',
+            result: a.result || 'Success',
+            details: a.details || '',
+          }));
+          setAuditLogs(mapped);
+        }
+      } catch (e) {
+        // keep mockAuditLogs
+      } finally {
+        if (isMounted) setLoadingAudit(false);
+      }
+    };
+
+    load();
+    return () => { isMounted = false; };
+  }, [token]);
+
+  const filtered = auditLogs.filter(e =>
     (!search || e.action.toLowerCase().includes(search.toLowerCase()) || e.admin.toLowerCase().includes(search.toLowerCase()) || e.details.toLowerCase().includes(search.toLowerCase())) &&
     (actionFilter === "All Actions" || e.result === actionFilter)
   );
@@ -1388,10 +1474,51 @@ function AuditLogsPage() {
 
 function NotificationsPage() {
   const reduced = usePrefersReducedMotion();
-  const [notifs, setNotifs] = useState(mockNotifications);
+  const { token } = useAuth();
+  const reduced2 = reduced;
+  const [notifs, setNotifs] = useState<Notification[]>(mockNotifications);
+  const [loadingNotifsLocal, setLoadingNotifsLocal] = useState(false);
   const unread = notifs.filter(n => !n.read).length;
   const groups = ["Today", "Yesterday", "Earlier"] as const;
-  const markAll = () => setNotifs(n => n.map(x => ({ ...x, read: true })));
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoadingNotifsLocal(true);
+      try {
+        const data = await fetchJson<{ success: boolean; notifications?: any[] }>(`${API_BASE}/admin/notifications`, token);
+        if (!isMounted) return;
+        if (Array.isArray(data.notifications)) {
+          const mapped = data.notifications.map((n: any) => ({
+            id: String(n._id || n.id),
+            type: n.type || 'system',
+            message: n.message || n.title || '',
+            timestamp: n.createdAt || n.timestamp || '',
+            read: Boolean(n.isRead),
+            group: n.group || 'Earlier',
+          }));
+          setNotifs(mapped);
+        }
+      } catch (e) {
+        // keep mocks
+      } finally {
+        if (isMounted) setLoadingNotifsLocal(false);
+      }
+    };
+
+    load();
+    return () => { isMounted = false; };
+  }, [token]);
+
+  const markAll = async () => {
+    const unreadIds = notifs.filter(n => !n.read).map(n => n.id);
+    try {
+      await Promise.all(unreadIds.map(id => fetchJson<any>(`${API_BASE}/admin/notifications/${id}/read`, token, { method: 'PATCH' })));
+      setNotifs(n => n.map(x => ({ ...x, read: true })));
+    } catch (e) {
+      // ignore
+    }
+  };
   return (
     <div className={`space-y-5 max-w-3xl ${reduced ? "" : "page-enter"}`}>
       <div className="flex items-center justify-between">
@@ -1414,7 +1541,14 @@ function NotificationsPage() {
               {grouped.map((n, index) => {
                 const { icon: NIcon, color } = notifIconMap[n.type];
                 return (
-                  <div key={n.id} onClick={() => setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x))}
+                  <div key={n.id} onClick={async () => {
+                    try {
+                      await fetchJson<any>(`${API_BASE}/admin/notifications/${n.id}/read`, token, { method: 'PATCH' });
+                    } catch (e) {
+                      // ignore
+                    }
+                    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+                  }}
                     className={`notification-enter flex items-start gap-4 px-5 py-4 cursor-pointer transition-colors hover:bg-blue-50/30 ${!n.read ? "bg-blue-50/20" : ""}`} style={{ animationDelay: `${index * 40}ms` }}>
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
                       <NIcon className="w-4 h-4" />
@@ -1594,7 +1728,30 @@ function Navbar({ current, setCurrent, notifCount }: { current: Page; setCurrent
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
-  const unreadNotifs = mockNotifications.filter(n => !n.read).length;
+  const { token } = useAuth();
+  const [notifCount, setNotifCount] = useState(0);
+  const [loadingNotifs, setLoadingNotifs] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      try {
+        const data = await fetchJson<{ success: boolean; unreadCount?: number }>(`${API_BASE}/admin/notifications/unread-count`, token);
+        if (isMounted) setNotifCount(data?.unreadCount || 0);
+      } catch {
+        if (isMounted) setNotifCount(0);
+      } finally {
+        if (isMounted) setLoadingNotifs(false);
+      }
+    };
+
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [token, page]);
+
+  const unreadNotifs = loadingNotifs ? 0 : notifCount;
 
   const pageMap: Record<Page, React.ReactNode> = {
     dashboard: <DashboardPage />,

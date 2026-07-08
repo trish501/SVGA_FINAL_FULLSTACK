@@ -49,7 +49,7 @@ const getRequestById = async (req, res) => {
 const updateRequestStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const validStatuses = ['Pending', 'Approved', 'Procured', 'Rejected', 'Returned'];
+    const validStatuses = ['Pending', 'Approved', 'Procured', 'Rejected', 'Returned', 'Completed'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
     }

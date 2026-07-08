@@ -10,8 +10,8 @@ const comparePassword = async (password, hash) => {
   return bcrypt.compare(password, hash);
 };
 
-const generateToken = (userId, role) => {
-  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+const generateToken = (userId, role, extra = {}) => {
+  return jwt.sign({ userId, role, ...extra }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
 const verifyToken = (token) => {

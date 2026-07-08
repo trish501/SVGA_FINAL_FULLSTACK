@@ -95,7 +95,7 @@ const adminLogin = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid admin credentials' });
     }
 
-    const token = generateToken('admin', 'admin');
+    const token = generateToken('admin', 'admin', { name: 'Admin', username: adminUsername });
     // expiresAt in ms ΓÇö 7 days from now (matches JWT_EXPIRES_IN default of '7d')
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
     return res.json({

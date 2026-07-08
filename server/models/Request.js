@@ -42,7 +42,7 @@ const requestSchema = new mongoose.Schema(
     requestedBooks: [requestedBookSchema],
     status: {
       type: String,
-      enum: ['Pending', 'Approved', 'Procured', 'Rejected', 'Returned'],
+      enum: ['Pending', 'Approved', 'Procured', 'Rejected', 'Returned', 'Completed'],
       default: 'Pending',
     },
     challanGenerated: { type: Boolean, default: false },

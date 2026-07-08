@@ -2,7 +2,9 @@
 
 const notificationSchema = new mongoose.Schema(
   {
-    studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+    adminId: { type: String, default: null, index: true },
+    recipientType: { type: String, enum: ['student', 'admin'], default: 'student', index: true },
     title: { type: String, required: true },
     message: { type: String, required: true },
     actionUrl: { type: String, default: null },

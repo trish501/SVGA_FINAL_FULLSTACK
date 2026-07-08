@@ -1,8 +1,12 @@
 ﻿const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
+const authMiddleware = require('../middleware/authMiddleware');
 const adminMiddleware = require('../middleware/adminMiddleware');
 const ProcurementService = require('../services/procurementService');
+const { resolveAdminName } = require('../utils/adminContext');
+
+router.use(authMiddleware, adminMiddleware);
 
 /**
  * POST /procurement/generate
@@ -10,7 +14,6 @@ const ProcurementService = require('../services/procurementService');
  */
 router.post(
   '/generate',
-  adminMiddleware,
   [body('selectedBooks').isArray().notEmpty().withMessage('Selected books array is required')],
   async (req, res) => {
     try {
@@ -21,7 +24,7 @@ router.post(
       }
 
       const { selectedBooks } = req.body;
-      const adminName = req.admin?.email || req.admin?.name || 'Admin';
+      const adminName = await resolveAdminName(req);
 
       // Validate selected books
       if (selectedBooks.length === 0) {
@@ -81,10 +84,10 @@ router.post(
  * GET /procurement/history
  * Get procurement batch history with pagination
  */
-router.get('/history', adminMiddleware, async (req, res) => {
+router.get('/history', async (req, res) => {
   try {
     const { limit = 50, skip = 0 } = req.query;
-    const adminName = req.admin?.email || req.admin?.name;
+    const adminName = await resolveAdminName(req);
 
     const history = await ProcurementService.getProcurementHistory({
       limit: parseInt(limit),
@@ -109,7 +112,7 @@ router.get('/history', adminMiddleware, async (req, res) => {
  * GET /procurement/batch/:batchId
  * Get specific procurement batch details
  */
-router.get('/batch/:batchId', adminMiddleware, async (req, res) => {
+router.get('/batch/:batchId', async (req, res) => {
   try {
     const { batchId } = req.params;
     const batch = await ProcurementService.getProcurementBatchDetails(batchId);
@@ -131,7 +134,7 @@ router.get('/batch/:batchId', adminMiddleware, async (req, res) => {
  * GET /procurement/pending
  * Get pending books for procurement (Approved but not yet purchased)
  */
-router.get('/pending', adminMiddleware, async (req, res) => {
+router.get('/pending', async (req, res) => {
   try {
     const pendingBooks = await ProcurementService.getBooksPendingPurchase();
 
@@ -153,7 +156,7 @@ router.get('/pending', adminMiddleware, async (req, res) => {
  * GET /procurement/download/:fileName
  * Download procurement PDF (serves static files from uploads directory)
  */
-router.get('/download/:fileName', adminMiddleware, (req, res) => {
+router.get('/download/:fileName', (req, res) => {
   try {
     const { fileName } = req.params;
     // Security: validate filename to prevent directory traversal

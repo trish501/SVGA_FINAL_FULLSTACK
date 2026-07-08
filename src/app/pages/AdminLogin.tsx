@@ -3,6 +3,9 @@ import { Link, useNavigate } from "react-router";
 import { BookOpen, ShieldAlert } from "lucide-react";
 import { motion } from "motion/react";
 import { useAuth } from "../contexts/AuthContext";
+import { toast } from "sonner";
+
+const API_BASE = "http://localhost:3001/api";
 
 export function AdminLogin() {
   const navigate = useNavigate();
@@ -10,11 +13,45 @@ export function AdminLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username.trim() && password.trim()) {
-      loginAdmin({ name: username, email: `${username}@svga.local` });
-      navigate("/admin", { replace: true });
+    setError(null);
+    if (!username.trim() || !password.trim()) {
+      setError('Username and password are required');
+      toast.error('Username and password are required');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password: password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        const msg = data?.message || 'Invalid admin credentials';
+        setError(msg);
+        toast.error(msg);
+        setLoading(false);
+        return;
+      }
+
+      const token = data.token || null;
+      const user = data.user || { name: username, username };
+      loginAdmin({ name: user.name || username, email: user.email || `${username}@svga.local`, username: user.username || username }, token);
+      toast.success('Signed in as admin');
+      navigate('/admin', { replace: true });
+    } catch (err: any) {
+      console.error('[AdminLogin] error', err);
+      setError(err?.message || 'Login failed');
+      toast.error(err?.message || 'Login failed');
+    } finally {
+      setLoading(false);
     }
   };
 

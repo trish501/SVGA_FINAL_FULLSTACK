@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect, type ChangeEvent } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
+import { fetchJson } from "../../utils/api";
 import {
   Bell, BookOpen, User, LayoutDashboard, Search, Check, Download,
   CheckCircle, LogOut, CreditCard, Smartphone, Camera, X,
@@ -38,7 +39,7 @@ function useStudent() {
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Screen = "dashboard" | "browse" | "requests" | "account";type RequestChallan = {
+type Screen = "dashboard" | "browse" | "requests" | "account"; type RequestChallan = {
   id: string;
   orderNo: string;
   challanNo: string;
@@ -53,8 +54,8 @@ type Screen = "dashboard" | "browse" | "requests" | "account";type RequestChalla
   status: string;
   deposit: string;
   refund: string;
-  libraryBooks: Array<{ title: string; author: string; notes?: string }>;
-  specialRequests: Array<{ title: string; author: string; edition: string; publisher: string; notes: string; imageName: string | null }>;
+  libraryBooks: Array<{ title: string; author: string; notes?: string; status?: string }>;
+  specialRequests: Array<{ title: string; author: string; edition: string; publisher: string; notes: string; imageName: string | null; status?: string }>;
 };
 
 type RequestItem = {
@@ -62,7 +63,7 @@ type RequestItem = {
   requestId: string;
   date: string;
   type: "Book Request";
-  status: "Pending" | "Approved" | "Returned" | "Rejected" | "Procured";
+  status: "Pending" | "Approved" | "Returned" | "Rejected" | "Procured" | "Completed";
   books: string[];
   challan: RequestChallan | null;
 };
@@ -299,11 +300,13 @@ function Logo({ compact = false }: { compact?: boolean }) {
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     Approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    Buy: "bg-violet-50 text-violet-700 border-violet-200",
     Pending: "bg-amber-50 text-amber-700 border-amber-200",
     Returned: "bg-slate-100 text-slate-600 border-slate-200",
     Rejected: "bg-red-50 text-red-600 border-red-200",
     Active: "bg-blue-50 text-blue-700 border-blue-200",
     Procured: "bg-purple-50 text-purple-700 border-purple-200",
+    Completed: "bg-emerald-100 text-emerald-700 border-emerald-200",
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${styles[status] ?? "bg-slate-100 text-slate-500 border-slate-200"}`}>
@@ -422,7 +425,7 @@ function ChallanPreviewCard({ challan, course }: { challan: RequestChallan | nul
                   <div className="mt-1 text-xs text-slate-400">{book.author}</div>
                 </div>
                 <span className="flex-shrink-0">
-                  <StatusBadge status={challan.status} />
+                  <StatusBadge status={book.status} />
                 </span>
               </div>
             )) : <div className="text-sm text-slate-400">No library books selected.</div>}
@@ -443,9 +446,10 @@ function ChallanPreviewCard({ challan, course }: { challan: RequestChallan | nul
                   <div className="font-semibold truncate">{index + 1}. {request.title}</div>
                   <div className="mt-1 text-xs text-slate-400">{request.author}</div>
                 </div>
-                <span className="flex-shrink-0">
-                  <StatusBadge status={challan.status} />
-                </span>
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={request.status} />
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{request.procurementStage}</span>
+                </div>
               </div>
             )) : <div className="text-sm text-slate-400">No special requests added.</div>}
           </div>
@@ -473,29 +477,26 @@ function StepBar({ step, labels }: { step: RegStep; labels: string[] }) {
         <div key={label} className="flex items-start">
           <div className="flex flex-col items-center">
             <div
-              className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-300 ${
-                i + 1 < step
-                  ? "bg-blue-600 border-blue-600 text-white"
-                  : i + 1 === step
+              className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-300 ${i + 1 < step
+                ? "bg-blue-600 border-blue-600 text-white"
+                : i + 1 === step
                   ? "bg-blue-600 border-blue-600 text-white ring-4 ring-blue-100"
                   : "bg-white border-slate-200 text-slate-400"
-              }`}
+                }`}
             >
               {i + 1 < step ? <Check className="w-4 h-4" /> : i + 1}
             </div>
             <span
-              className={`mt-2 text-[11px] font-semibold whitespace-nowrap ${
-                i + 1 === step ? "text-blue-600" : i + 1 < step ? "text-blue-400" : "text-slate-400"
-              }`}
+              className={`mt-2 text-[11px] font-semibold whitespace-nowrap ${i + 1 === step ? "text-blue-600" : i + 1 < step ? "text-blue-400" : "text-slate-400"
+                }`}
             >
               {label}
             </span>
           </div>
           {i < labels.length - 1 && (
             <div
-              className={`w-20 h-0.5 mt-[18px] mx-1 transition-all duration-300 ${
-                i + 1 < step ? "bg-blue-500" : "bg-slate-200"
-              }`}
+              className={`w-20 h-0.5 mt-[18px] mx-1 transition-all duration-300 ${i + 1 < step ? "bg-blue-500" : "bg-slate-200"
+                }`}
             />
           )}
         </div>
@@ -537,11 +538,10 @@ function NavBar({ active, onNav, unreadCount, onToggleNotifications }: { active:
                     y: isActive ? -0.5 : 0,
                     scale: isActive ? 1 : 0.99,
                   }}
-                  className={`group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-semibold transition-[background-color,transform,box-shadow,opacity] duration-200 ${
-                    isActive
-                      ? "border-blue-100/80 text-blue-700 backdrop-blur-[8px]"
-                      : "border-transparent text-slate-500 hover:border-white/70 hover:bg-white/70 hover:text-slate-800"
-                  }`}
+                  className={`group relative inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-semibold transition-[background-color,transform,box-shadow,opacity] duration-200 ${isActive
+                    ? "border-blue-100/80 text-blue-700 backdrop-blur-[8px]"
+                    : "border-transparent text-slate-500 hover:border-white/70 hover:bg-white/70 hover:text-slate-800"
+                    }`}
                 >
                   <span className="transition-transform duration-200 group-hover:scale-105">{l.icon}</span>
                   {l.label}
@@ -574,9 +574,8 @@ function NavBar({ active, onNav, unreadCount, onToggleNotifications }: { active:
           <button
             key={l.key}
             onClick={() => onNav(l.key)}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-semibold transition-colors ${
-              active === l.key ? "text-blue-600" : "text-slate-400"
-            }`}
+            className={`flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-semibold transition-colors ${active === l.key ? "text-blue-600" : "text-slate-400"
+              }`}
           >
             {l.icon}
             {l.label}
@@ -673,17 +672,17 @@ function DashboardScreen({ onNav, requests }: { onNav: (s: Screen) => void; requ
                 View all →
               </button>
             </div>
-                <div className="divide-y divide-slate-50">
-                {requests.slice(0, 3).map((r) => (
-                  <div key={r.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
-                    <div>
-                      <div className="text-sm font-bold text-slate-800">{r.id}</div>
-                      <div className="text-xs text-slate-400 mt-0.5">{r.date} · {r.type}</div>
-                    </div>
-                    <StatusBadge status={r.status} />
+            <div className="divide-y divide-slate-50">
+              {requests.slice(0, 3).map((r) => (
+                <div key={r.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold text-slate-800">{r.id}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{r.date} · {r.type}</div>
                   </div>
-                ))}
-              </div>
+                  <StatusBadge status={r.status} />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -923,12 +922,12 @@ function BrowseBooks({ onRequestCreated }: { onRequestCreated: (request: Request
       const dateObj = new Date(r.createdAt);
       const year = dateObj.getFullYear();
       const suffix = String(r._id).slice(-6).toUpperCase();
-      
+
       const requestId = `SVGA/${year}/REQ/${suffix}`;
       const challanNo = `SVGA/${year}/CHL/${suffix}`;
       const orderNo = `SVGA/${year}/ORD/${suffix}`;
       const requestDate = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-      
+
       const libraryBooks = selectedLibraryBooks.map((bookId) => {
         const book = inventoryBooks.find((item) => item.id === bookId);
         return { title: book?.title ?? "Unknown", author: book?.author ?? "Unknown", notes: "Available for issue" };
@@ -1037,26 +1036,26 @@ function BrowseBooks({ onRequestCreated }: { onRequestCreated: (request: Request
               <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1.5">Course / Standard</label>
                 <div className="relative">
-                <Select
-                  value={course}
-                  onValueChange={(nextValue) => {
-                    setCourse(nextValue);
-                    setStream("");
-                  }}
-                  className="w-full"
-                >
-                  <SelectTrigger className="w-full rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300" size="default">
-                    <SelectValue placeholder="Select course / standard" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60 overflow-y-auto">
-                    {courseOptions.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <Select
+                    value={course}
+                    onValueChange={(nextValue) => {
+                      setCourse(nextValue);
+                      setStream("");
+                    }}
+                    className="w-full"
+                  >
+                    <SelectTrigger className="w-full rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-300" size="default">
+                      <SelectValue placeholder="Select course / standard" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {courseOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {showStreamField && (
@@ -1472,12 +1471,12 @@ function MyAccount({ onLogout }: { onLogout: () => void }) {
   // Calculate membership validity (1 year from registration)
   const validUntil = STUDENT.memberSince !== "N/A"
     ? (() => {
-        const parts = STUDENT.memberSince.split(" ");
-        const monthMap: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
-        const year = parseInt(parts[1]) + 1;
-        const month = monthMap[parts[0]] ?? 0;
-        return new Date(year, month).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
-      })()
+      const parts = STUDENT.memberSince.split(" ");
+      const monthMap: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+      const year = parseInt(parts[1]) + 1;
+      const month = monthMap[parts[0]] ?? 0;
+      return new Date(year, month).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+    })()
     : "N/A";
 
   return (
@@ -1645,76 +1644,81 @@ export default function App() {
   const unreadCount = notifications.filter((item) => item.unread).length;
 
   // ── Fetch real requests from backend on mount ────────────────────────────────
-  useEffect(() => {
+  const refreshRequests = async () => {
     if (!token) return;
-    fetch(`${API_BASE}/requests/my`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.requests)) {
-          const mapped: RequestItem[] = data.requests.map((r: any) => {
-            const dateObj = new Date(r.createdAt);
-            const year = dateObj.getFullYear();
-            const suffix = String(r._id).slice(-6).toUpperCase();
-            
-            const reqId = `SVGA/${year}/REQ/${suffix}`;
-            const challanNo = `SVGA/${year}/CHL/${suffix}`;
-            const orderNo = `SVGA/${year}/ORD/${suffix}`;
-            const requestDate = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    try {
+      const data = await fetchJson<{ success: boolean; requests?: any[] }>(`${API_BASE}/requests/my`, token);
+      if (data.success && Array.isArray(data.requests)) {
+        const mapped: RequestItem[] = data.requests.map((r: any) => {
+          const dateObj = new Date(r.createdAt || r.createdAt || Date.now());
+          const year = dateObj.getFullYear();
+          const suffix = String(r._id).slice(-6).toUpperCase();
 
-            const libraryBooks = (r.selectedBookIds ?? []).map((b: any) => ({
-              title: b.title ?? "Unknown",
-              author: b.author ?? "Unknown",
-              notes: "Available for issue"
-            }));
-            const specialBookRequests = (r.requestedBooks ?? []).map((b: any) => ({
-              title: b.title,
-              author: b.author,
-              edition: b.edition ?? "",
-              publisher: b.publisher ?? "",
-              notes: b.note ?? "",
-              imageName: null,
-            }));
+          const reqId = `SVGA/${year}/REQ/${suffix}`;
+          const challanNo = `SVGA/${year}/CHL/${suffix}`;
+          const orderNo = `SVGA/${year}/ORD/${suffix}`;
+          const requestDate = dateObj.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
-            const challan: RequestChallan = {
-              id: challanNo,
-              orderNo,
-              challanNo,
-              date: requestDate,
-              student: {
-                name: STUDENT.name,
-                course: STUDENT.course,
-                college: STUDENT.college,
-                phone: STUDENT.mobile,
-                studentId: STUDENT.id,
-              },
-              status: r.status,
-              deposit: "Paid at Registration",
-              refund: "Applicable on return",
-              libraryBooks,
-              specialRequests: specialBookRequests,
-            };
+          const libraryBooks = (r.selectedBooks ?? r.selectedBookIds ?? []).map((b: any) => ({
+            title: b.title ?? "Unknown",
+            author: b.author ?? "Unknown",
+            notes: b.decision ? `Status: ${b.decision}` : "Pending decision",
+            status: b.decision || "Pending",
+          }));
+          const specialBookRequests = (r.requestedBooks ?? []).map((b: any) => ({
+            title: b.title || "Unknown",
+            author: b.author || "Unknown",
+            edition: b.edition ?? "",
+            publisher: b.publisher ?? "",
+            notes: b.note ?? "",
+            imageName: null,
+            status: b.decision || "Pending",
+            procurementStage: b.decision === 'Rejected' ? 'Rejected' : b.decision === 'Buy' ? 'Completed' : b.decision === 'Approved' ? 'Approved' : 'Requested',
+          }));
 
-            return {
-              id: String(r._id),
-              requestId: reqId,
-              date: requestDate,
-              type: "Book Request" as const,
-              status: r.status as RequestItem["status"],
-              books: [
-                ...libraryBooks.map((b) => b.title),
-                ...specialBookRequests.map((b) => b.title),
-              ],
-              challan,
-            };
-          });
-          setRequests(mapped);
-        }
-      })
-      .catch(() => {
-        // Backend unavailable — leave requests empty
-      });
+          const challan: RequestChallan = {
+            id: challanNo,
+            orderNo,
+            challanNo,
+            date: requestDate,
+            student: {
+              name: STUDENT.name,
+              course: STUDENT.course,
+              college: STUDENT.college,
+              phone: STUDENT.mobile,
+              studentId: STUDENT.id,
+            },
+            status: r.status,
+            deposit: "Paid at Registration",
+            refund: "Applicable on return",
+            libraryBooks,
+            specialRequests: specialBookRequests,
+          };
+
+          return {
+            id: String(r._id),
+            requestId: reqId,
+            date: requestDate,
+            type: "Book Request" as const,
+            status: r.status as RequestItem["status"],
+            books: [
+              ...libraryBooks.map((b) => b.title),
+              ...specialBookRequests.map((b) => b.title),
+            ],
+            challan,
+          };
+        });
+        setRequests(mapped);
+      }
+    } catch (err) {
+      console.error("Failed to refresh student requests:", err);
+    }
+  };
+
+  useEffect(() => {
+    refreshRequests();
+    const interval = setInterval(refreshRequests, 15000);
+    return () => clearInterval(interval);
   }, [token]);
 
   // ── Handle real logout (only triggered by Sign Out button) ───────────────────
@@ -1750,7 +1754,32 @@ export default function App() {
     }
   };
 
-  const handleViewNotification = (notification: NotificationItem) => {
+  const refreshNotifications = async () => {
+    if (!token) return;
+    try {
+      const data = await fetchJson<{ success: boolean; notifications?: any[] }>(`${API_BASE}/notifications`, token);
+      if (data.success && Array.isArray(data.notifications)) {
+        const mapped = data.notifications.map((n: any) => ({
+          id: String(n._id || n.id),
+          type: (n.type || 'info') as NotificationType,
+          title: n.title || 'Notification',
+          description: n.message || '',
+          requestId: n.actionUrl ? String(n.actionUrl).split('/').pop() : null,
+          status: n.type === 'success' ? 'Success' : n.type === 'warning' ? 'Warning' : n.type === 'info' ? 'Pending' : 'Info',
+          timestamp: n.createdAt || n.timestamp || '',
+          unread: !Boolean(n.isRead),
+          actionLabel: n.actionUrl ? 'View Challan' : undefined,
+          actionType: n.actionUrl ? 'view-challan' : undefined,
+        }));
+        setNotifications(mapped);
+      }
+    } catch (err) {
+      console.error('Failed to refresh notifications:', err);
+    }
+  };
+
+  const handleViewNotification = async (notification: NotificationItem) => {
+    await refreshRequests();
     if (notification.actionType === "view-challan") {
       setActiveChallan(requests.find((r) => r.requestId === notification.requestId)?.challan ?? null);
     }
